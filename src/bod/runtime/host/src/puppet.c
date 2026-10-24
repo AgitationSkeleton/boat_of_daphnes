@@ -163,6 +163,7 @@ enum {
     GRID_PACKET = 0x2A0u,
     HO_MTX = 0x80u, HO_TEVSTR = 0xB0u, HO_POS = 0xB4u, HO_NRM = 0x8ACu, HO_BACKNRM = 0x10A4u, HO_CUR = 0x18A2u, HO_ALPHA = 0x18A3u,
     HO_SIZE = 0x18A4u,
+    ATT_PHASE_COMPLETE = 4, ATT_PHASE_ERROR = 5, // request_of_phase_process_class states (cPhs_COMPLEATE_e, cPhs_ERROR_e)
     FN_RES_LOAD = 0x80053390u,               // dComIfG_resLoad(request_of_phase_process_class*, arcName)
     FN_RES_DELETE = 0x800533D0u,             // dComIfG_resDelete(request_of_phase_process_class*, arcName)
     HO_POINTS = 85,
@@ -826,8 +827,11 @@ typedef struct Guest {
         u32 heap, model, ptex, skin; // skin: the hull's J3DSkinDeform
         bool failed;
         int retry;
+        bool loading;  // the puppet itself asked the game for the archive (dComIfG_resLoad): released with the model
+        int load_tries;
         unsigned used; // the draw counter when last drawn
     } att[ATT_MODELS];
+    u32 att_phase, att_phase_heap;      // a request_of_phase_process_class for each of att[], in a heap of their own
     u32 sail_heap, sail_pkt, sail_zmtx; // the puppet's sail packet (draw_sail), and the heap it and the phases live in
     u32 sail_phase;                     // two request_of_phase_process_class (Cloth, Ship) while it holds those archives
     int sail_tries, sail_said;
@@ -2450,6 +2454,7 @@ static u32 joint_node(CPUState* cpu, u32 joints, int joint_no) { return mem_read
 // seen: if that archive is loaded here (the Link archive always is; a carried pot's or a Deku stick's when this player's
 // scene has it too). Their joints are written as sent, so the models are never calculated here: a calc would run the
 // joint callbacks of the owner that made the shared data (the bow, the leaf: the player actor's).
+static void att_release_archive(GuestCoro* co, CPUState* cpu, Guest* g, struct AttModel* m);
 static void att_forget_textures(Guest* g, u32 ptex) {
     if (ptex == 0u)
         return;
@@ -2474,19 +2479,82 @@ static void att_free(GuestCoro* co, Guest* g) {
     g->sail_tries = g->sail_said = 0;
     g->sail_built = g->sail_given_up = false;
     for (int i = 0; i < ATT_MODELS; ++i) {
+        att_release_archive(co, bluewake_coro_cpu(co), g, &g->att[i]);
         att_forget_textures(g, g->att[i].ptex);
         if (g->att[i].heap != 0u)
             destroy_puppet_heap(co, g->att[i].heap);
         memset(&g->att[i], 0, sizeof g->att[i]);
     }
+    if (g->att_phase_heap != 0u)
+        destroy_puppet_heap(co, g->att_phase_heap);
+    g->att_phase = g->att_phase_heap = 0u;
+}
+
+// The phase object of an attachment's archive request (made on first use, in a small heap of its own).
+static u32 att_phase_of(GuestCoro* co, CPUState* cpu, Guest* g, const struct AttModel* m) {
+    if (g->att_phase == 0u) {
+        u32 heap = pool_solid_heap(co, 0x400u);
+        if (heap == 0u)
+            heap = call(co, FN_CREATE_HEAP_TO_CURRENT, 0x400u, 0x20u, 0, 0);
+        if (heap == 0u)
+            return 0u;
+        const u32 ph = call(co, FN_NEW, 8u * ATT_MODELS, 0, 0, 0);
+        call(co, FN_ADJUST_HEAP, heap, 0, 0, 0);
+        call(co, FN_RESTORE_HEAP, 0, 0, 0, 0);
+        if (!guest_ptr(ph)) {
+            destroy_puppet_heap(co, heap);
+            return 0u;
+        }
+        for (u32 o = 0; o < 8u * ATT_MODELS; o += 4u)
+            mem_write32(cpu, ph + o, 0u);
+        g->att_phase = ph;
+        g->att_phase_heap = heap;
+    }
+    return g->att_phase + 8u * (u32)(m - g->att);
+}
+
+// Gives back an archive the puppet asked the game for.
+static void att_release_archive(GuestCoro* co, CPUState* cpu, Guest* g, struct AttModel* m) {
+    if (!m->loading || g->att_phase == 0u)
+        return;
+    const u32 ph = g->att_phase + 8u * (u32)(m - g->att);
+    for (int i = 0; i < ATT_ARC; ++i)
+        mem_write8(cpu, g->pos + 0x50u + (u32)i, (u8)m->arc[i]);
+    call(co, FN_RES_DELETE, ph, g->pos + 0x50u, 0, 0);
+    mem_write32(cpu, ph, 0u);
+    mem_write32(cpu, ph + 4u, 0u);
+    m->loading = false;
 }
 
 static void att_make(GuestCoro* co, CPUState* cpu, Guest* g, struct AttModel* m) {
     for (int i = 0; i < ATT_ARC; ++i)
         mem_write8(cpu, g->pos + 0x50u + (u32)i, (u8)m->arc[i]);
-    const u32 data = call(co, FN_GET_RES, g->pos + 0x50u, m->idx, RES_OBJECT_INFO, RES_OBJECT_INFO_NUM);
+    u32 data = call(co, FN_GET_RES, g->pos + 0x50u, m->idx, RES_OBJECT_INFO, RES_OBJECT_INFO_NUM);
     m->failed = true;
     m->retry = 0;
+    if (!guest_ptr(data) && m->arc[0] != '\0' && m->load_tries < 1800) {
+        // What a puppet holds, carries or is given comes from an archive the game loads only where the item is used (a pot's,
+        // an item-get's): this PC may not have it. The puppet asks for it as the sail asks for the ship's, and tries again
+        // each frame while it loads.
+        const u32 ph = att_phase_of(co, cpu, g, m);
+        if (ph != 0u) {
+            for (int i = 0; i < ATT_ARC; ++i)
+                mem_write8(cpu, g->pos + 0x50u + (u32)i, (u8)m->arc[i]);
+            const u32 state = call(co, FN_RES_LOAD, ph, g->pos + 0x50u, 0, 0) & 0xFFu;
+            m->loading = true;
+            if (state == ATT_PHASE_COMPLETE) {
+                for (int i = 0; i < ATT_ARC; ++i)
+                    mem_write8(cpu, g->pos + 0x50u + (u32)i, (u8)m->arc[i]);
+                data = call(co, FN_GET_RES, g->pos + 0x50u, m->idx, RES_OBJECT_INFO, RES_OBJECT_INFO_NUM);
+                fprintf(stderr, "[puppet] slot %d: loaded the %s archive for the player's item\n", (int)(g - g_guest), m->arc);
+            } else if (state != ATT_PHASE_ERROR) {
+                if (m->load_tries++ == 0)
+                    fprintf(stderr, "[puppet] slot %d: %s is not loaded here: loading it (state %u)\n", (int)(g - g_guest), m->arc, (unsigned)state);
+                m->retry = 299; // asked again next frame
+                return;
+            }
+        }
+    }
     if (!guest_ptr(data)) {
         fprintf(stderr, "[puppet] slot %d: %s resource %u is not loaded here: not drawn\n", (int)(g - g_guest), m->arc, (unsigned)m->idx);
         return;
@@ -2550,6 +2618,7 @@ static struct AttModel* att_get(GuestCoro* co, CPUState* cpu, Guest* g, const ch
         if (use == NULL || (use->arc[0] != '\0' && (m->arc[0] == '\0' || m->used < use->used)))
             use = m;
     }
+    att_release_archive(co, cpu, g, use);
     att_forget_textures(g, use->ptex);
     if (use->heap != 0u)
         destroy_puppet_heap(co, use->heap);

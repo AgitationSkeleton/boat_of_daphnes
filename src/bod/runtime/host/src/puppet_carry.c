@@ -47,7 +47,8 @@ enum {
 
     MAX_PEERS = 16,
     QUEUE = 48,
-    HOLD_DROP = 62,            // the held player's feet below the carrier's hands
+    HOLD_DROP = 0,             // the held player's feet below the carrier's hands (the held thing's origin is a hand's height above Link's head: at 62 the
+                               // body overlapped the carrier's, BR-0036)
     POS_EVERY = 2,             // frames between CARRY_POS while held
     TIMEOUT_MS = 3000,
     HOLD_MAX_MS = 180000,

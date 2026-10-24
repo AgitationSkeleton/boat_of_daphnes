@@ -15,6 +15,7 @@
 //         MATE_LEGACY=1 (publish as an older client does: a plain manifest with only Link.arc),
 //         MATE_WAVE=1 (the replayed pose's left arm joints swing between two angles every 1.5 s: shows the limbs follow the stream),
 //         MATE_FREEZE=1 (always the first recorded pose: the puppet stands still, with one expression),
+//         MATE_ATT="<arc>:<index>:<joints>:<kind>[:<height>]" (a model of a game archive held over the puppet's head, as a puppet with a carried or held object sends it),
 //         MATE_TURN=<degrees> (the base is turned about the vertical: 180 faces the puppet the other way),
 //         MATE_NOFACE=1 (the expression chunk is left out of the replayed pose: the puppet's face must not be the game's own Link's),
 //         MATE_GEAR=1 (the replayed pose has the Hero's Sword on the back and the Hero's Shield on the arm, as a player
@@ -122,6 +123,20 @@ function dropChunks(pose, tags) {
   return Buffer.concat(parts);
 }
 
+// An attachment chunk (EXT_ATTACH) holding one model of a game archive above the puppet's head, as a pose with a held or
+// carried object sends it: MATE_ATT="<arc>:<resource index>:<joint count>:<kind>[:<height>]" (kind 1 item in hand, 4 grab,
+// 6 throw, 9 item get). The model is not the PC's own: the archive may not be loaded there.
+function attachChunk(spec) {
+  const [arc, idx, nj, kind, height] = spec.split(':');
+  const xf = (y) => { const b = Buffer.alloc(14); b.writeInt16LE(32767, 6); b.writeInt16LE(Math.round(y * 8), 10); return b; }; // identity, up y
+  const y = Number(height || 150);
+  const head = Buffer.from([Number(kind), arc.length]);
+  const mid = Buffer.alloc(2); mid.writeInt16LE(Number(idx), 0);
+  const body = Buffer.concat([Buffer.from([1]), head, Buffer.from(arc, 'latin1'), mid, Buffer.from([Number(nj), 0]), xf(y), ...Array.from({ length: Number(nj) }, () => xf(y))]);
+  const tag = Buffer.alloc(3); tag[0] = 2; tag.writeInt16LE(body.length, 1);
+  return Buffer.concat([tag, body]);
+}
+
 let mateParts = null;
 const content = pack ? await publish(pack) : '';
 const mateName = process.env.MATE_NAME || 'Mate';
@@ -180,6 +195,7 @@ setInterval(() => {
     }
   }
   let sent = process.env.MATE_GEAR ? withGear(pose) : pose;
+  if (process.env.MATE_ATT) sent = Buffer.concat([sent, attachChunk(process.env.MATE_ATT)]);
   if (process.env.MATE_NOFACE) sent = dropChunks(sent, [1]); // no expression in the stream (EXT_FACE)
   ws.send(JSON.stringify({ type: 'PLAYER_UPDATE', stage: f.stage, room: f.room, pos: [f.pos[0] + delta[0], f.pos[1] + delta[1], f.pos[2] + delta[2]],
     angle: f.angle, pose: sent.toString('base64') }));
