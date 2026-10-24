@@ -1,6 +1,6 @@
 // Custom player content (a player's Link model, voice and equipment files), stored by hash.
 //
-//   PUT  /content/<sha256>[?kind=manifest|archive|aaf|wave]
+//   PUT  /content/<sha256>[?kind=manifest|archive|aaf|wave|metadata|mask]
 //                                            a blob; the server hashes the body and refuses it unless it
 //                                            is <sha256>, then checks it by kind (below).
 //   GET  /content/<sha256>                   the blob (immutable: the name is the hash of the bytes)
@@ -15,6 +15,15 @@
 // server does not decompress); the audio init file JaiInit.aaf (kind=aaf, its record stream is walked); a wave bank
 // (kind=wave, size rules only: it has no header). Anything else is refused, so the store is not general file
 // hosting on this domain. Clients check everything they download again, and never run it.
+//
+// Colour pack (added after the first clients shipped; they never send it and are not affected by it): the colours of a
+// player model need its metadata.txt (kind=metadata: plain text) and its colour masks (kind=mask: one PNG each, red and
+// white pictures). A manifest may carry them in an optional top-level section next to "files" (which older clients
+// read, and which they limit to 64 entries, so the masks are not listed there):
+//   "colors": { "metadata": { sha256, size }, "masks": [{ path: "color_masks/hero_hair.png", sha256, size }, ...] }
+// Older clients ignore the section; this server checks it only when it is there. The PNGs are checked to the byte (chunks
+// and their CRCs, the deflate stream inflated to exactly the size the header implies), and only the chunks a mask needs
+// are accepted: whatever else a PNG can carry is refused, so the sender strips it before uploading.
 //
 // Storage: the CONTENT Workers KV namespace (values up to 25 MB; the limit here is 20 MB per file and per
 // manifest). Uploads are rate-limited per client address (IP_SALT salts the hash the counter is kept under).
@@ -37,6 +46,15 @@ const MAX_AAF = 2 * 1024 * 1024;
 const MAX_WAVE = 8 * 1024 * 1024;
 const MEMBER_EXTENSIONS = new Set(['bdl', 'bmd', 'bti', 'bck', 'brk', 'btk']);
 const VOICE_PATHS = new Set(['sound/JaiInit.aaf', 'sound/voice_0.aw', 'sound/GanonT_0.aw']);
+const MAX_MASK = 2 * 1024 * 1024; // one colour mask PNG
+const MAX_MASK_SIDE = 2048;
+const MAX_MASK_RAW = 20 * 1024 * 1024; // what a mask's deflate stream may inflate to
+const MAX_METADATA = 64 * 1024;
+const MAX_MASKS = 200; // in one manifest (so that it stays well under its 64 KB)
+const MAX_MASKS_TOTAL = 16 * 1024 * 1024;
+const MASK_UPLOADS_PER_HOUR = 400; // masks and metadata have their own budget, apart from the archives'
+const MASK_BYTES_PER_HOUR = 48 * 1024 * 1024;
+const MASK_PATH = /^color_masks\/(mouths\/)?[a-z0-9 _.-]{1,80}\.png$/;
 const ROLES = new Set(['model', 'equipment', 'voice', 'metadata', 'colors']);
 
 const be32 = (v, at) => v.getUint32(at, false);
@@ -153,6 +171,154 @@ export function checkWave(body) {
   return null;
 }
 
+// metadata.txt of a player model: text the client reads as a small YAML subset. Valid UTF-8, no control characters
+// (tab and line breaks aside), bounded lines.
+export function checkMetadata(body) {
+  if (body.byteLength < 1 || body.byteLength > MAX_METADATA) return 'metadata.txt has an impossible size';
+  let text;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(body);
+  } catch {
+    return 'metadata.txt is not UTF-8 text';
+  }
+  if (/[\0-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text)) return 'metadata.txt has control characters';
+  const lines = text.split(/\r\n|\n|\r/);
+  if (lines.length > 4000 || lines.some((l) => l.length > 2000)) return 'metadata.txt has too many or too long lines';
+  return null;
+}
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(bytes, from, to) {
+  let c = 0xffffffff;
+  for (let i = from; i < to; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+// A colour mask: a PNG with the chunks a picture needs and nothing else (null when acceptable, else why not; async: the
+// deflate stream is inflated, bounded, and must come out at exactly the size the header implies).
+const PNG_ANCILLARY = new Set(['gAMA', 'cHRM', 'sRGB', 'sBIT', 'pHYs', 'bKGD', 'tIME']);
+const PNG_DEPTHS = { 0: [1, 2, 4, 8, 16], 2: [8, 16], 3: [1, 2, 4, 8], 4: [8, 16], 6: [8, 16] };
+const PNG_CHANNELS = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+export async function checkMask(body) {
+  const n = body.byteLength;
+  if (n < 57 || n > MAX_MASK) return 'a mask has an impossible size';
+  const b = new Uint8Array(body);
+  const v = new DataView(body);
+  const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (sig.some((x, i) => b[i] !== x)) return 'a mask is not a PNG';
+  let at = 8;
+  let w = 0, h = 0, depth = 0, ctype = 0, interlace = 0;
+  let sawPlte = false, sawTrns = false, plteEntries = 0, idatStart = -1, idatEnded = false, ended = false, first = true;
+  const idat = [];
+  let idatBytes = 0;
+  while (at < n) {
+    if (at + 12 > n) return 'a PNG chunk runs past the file';
+    const len = v.getUint32(at, false);
+    if (len > n - at - 12) return 'a PNG chunk runs past the file';
+    const type = String.fromCharCode(b[at + 4], b[at + 5], b[at + 6], b[at + 7]);
+    if (!/^[A-Za-z]{4}$/.test(type)) return 'a PNG chunk has a bad type';
+    if (crc32(b, at + 4, at + 8 + len) !== v.getUint32(at + 8 + len, false)) return 'a PNG chunk fails its checksum';
+    const data = at + 8;
+    if (first && type !== 'IHDR') return 'a PNG does not start with its header';
+    if (ended) return 'a PNG has data after its end';
+    if (type === 'IHDR') {
+      if (!first || len !== 13) return 'the PNG header is wrong';
+      w = v.getUint32(data, false);
+      h = v.getUint32(data + 4, false);
+      depth = b[data + 8];
+      ctype = b[data + 9];
+      interlace = b[data + 12];
+      if (w < 1 || h < 1 || w > MAX_MASK_SIDE || h > MAX_MASK_SIDE) return 'a mask has impossible dimensions';
+      if (!PNG_DEPTHS[ctype] || !PNG_DEPTHS[ctype].includes(depth)) return 'a PNG has an impossible colour type or depth';
+      if (b[data + 10] !== 0 || b[data + 11] !== 0 || interlace > 1) return 'a PNG has an unknown compression, filter or interlace method';
+    } else if (type === 'PLTE') {
+      if (sawPlte || idatStart >= 0 || ctype === 0 || ctype === 4 || len === 0 || len % 3 !== 0 || len > 768) return 'a PNG palette is misplaced or malformed';
+      if (ctype === 3 && len / 3 > 1 << depth) return 'a PNG palette is too large for its depth';
+      sawPlte = true;
+      plteEntries = len / 3;
+    } else if (type === 'tRNS') {
+      if (sawTrns || idatStart >= 0) return 'a PNG transparency chunk is misplaced';
+      if (ctype === 0 ? len !== 2 : ctype === 2 ? len !== 6 : ctype === 3 ? len < 1 || len > plteEntries : true) return 'a PNG transparency chunk is malformed';
+      if (ctype === 3 && !sawPlte) return 'a PNG transparency chunk comes before its palette';
+      sawTrns = true;
+    } else if (type === 'IDAT') {
+      if (idatEnded) return 'a PNG image data is not contiguous';
+      if (idatStart < 0) idatStart = at;
+      if (len > 0) idat.push(b.subarray(data, data + len));
+      idatBytes += len;
+    } else if (type === 'IEND') {
+      if (len !== 0 || idatStart < 0) return 'a PNG ends without image data';
+      ended = true;
+    } else if (PNG_ANCILLARY.has(type)) {
+      if (idatStart >= 0 || len > 1024) return 'a PNG chunk is misplaced or too large';
+    } else {
+      return `a PNG carries a ${type} chunk, which a colour mask must not`;
+    }
+    if (type !== 'IDAT' && idatStart >= 0) idatEnded = true;
+    first = false;
+    at += 12 + len;
+  }
+  if (!ended) return 'a PNG has no end';
+  if (ctype === 3 && !sawPlte) return 'an indexed PNG has no palette';
+  // The raw size the header implies: each scanline is a filter byte and the row's bytes.
+  const bits = depth * PNG_CHANNELS[ctype];
+  const rows = [];
+  if (interlace === 0) {
+    rows.push([h, 1 + Math.ceil((w * bits) / 8)]);
+  } else {
+    for (const [x0, y0, dx, dy] of [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]]) {
+      const pw = Math.ceil((w - x0) / dx);
+      const ph = Math.ceil((h - y0) / dy);
+      if (pw > 0 && ph > 0) rows.push([ph, 1 + Math.ceil((pw * bits) / 8)]);
+    }
+  }
+  const expected = rows.reduce((a, [count, size]) => a + count * size, 0);
+  if (expected > MAX_MASK_RAW) return 'a mask would inflate to too much';
+  const z = new Uint8Array(idatBytes);
+  let zat = 0;
+  for (const part of idat) {
+    z.set(part, zat);
+    zat += part.length;
+  }
+  if (z.length < 6 || (z[0] & 0x0f) !== 8 || z[0] >> 4 > 7 || ((z[0] << 8) | z[1]) % 31 !== 0 || z[1] & 0x20) return 'a PNG has a bad zlib header';
+  // Inflate, counting; the scanlines' filter bytes are checked as they pass.
+  let seg = 0, left = rows[0][0], segLen = rows[0][1], pos = 0, total = 0;
+  try {
+    const reader = new Blob([z]).stream().pipeThrough(new DecompressionStream('deflate')).getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > expected) {
+        await reader.cancel();
+        return 'a PNG inflates to more than its header says';
+      }
+      for (let i = 0; i < value.length; i++) {
+        if (pos === 0 && value[i] > 4) {
+          await reader.cancel();
+          return 'a PNG scanline has an unknown filter';
+        }
+        if (++pos === segLen) {
+          pos = 0;
+          if (--left === 0 && ++seg < rows.length) [left, segLen] = rows[seg];
+        }
+      }
+    }
+  } catch {
+    return 'a PNG has a damaged deflate stream';
+  }
+  if (total !== expected) return 'a PNG inflates to less than its header says';
+  return null;
+}
+
 const cors = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, HEAD, PUT, OPTIONS', 'access-control-allow-headers': '*' };
 
 function reply(body, status = 200, extra = {}) {
@@ -174,6 +340,26 @@ function rolePathOk(role, path) {
   return true; // metadata and colors are never stored by this server, but an older client may list them
 }
 
+// The optional colour pack section of a manifest (see the head of this file).
+function checkColorSection(c) {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return 'the colour pack is malformed';
+  const entry = (e, max) => e && typeof e === 'object' && HEX64.test(e.sha256) && Number.isInteger(e.size) && e.size > 0 && e.size <= max;
+  if (c.metadata !== undefined && !entry(c.metadata, MAX_METADATA)) return 'the colour pack metadata entry is malformed';
+  if (c.masks !== undefined) {
+    if (!Array.isArray(c.masks) || c.masks.length > MAX_MASKS) return `the colour pack lists up to ${MAX_MASKS} masks`;
+    const seen = new Set();
+    let total = 0;
+    for (const e of c.masks) {
+      if (!entry(e, MAX_MASK) || typeof e.path !== 'string' || !MASK_PATH.test(e.path)) return 'a colour mask entry is malformed';
+      if (seen.has(e.path)) return 'a colour mask is listed twice';
+      seen.add(e.path);
+      total += e.size;
+    }
+    if (total > MAX_MASKS_TOTAL) return 'the colour masks are over the size limit';
+  }
+  return null;
+}
+
 // A manifest's shape: sizes and hashes only, paths that stay inside the pack, a known role for each path.
 export function checkManifest(text) {
   let m;
@@ -189,6 +375,8 @@ export function checkManifest(text) {
     if (!p || typeof p !== 'object' || Array.isArray(p)) return 'the manifest parts are malformed';
     if (p.equipment !== undefined && !['', 'model', 'equipment'].includes(p.equipment)) return 'the equipment part is not known';
   }
+  const colorsProblem = m.colors === undefined ? null : checkColorSection(m.colors);
+  if (colorsProblem) return colorsProblem;
   let total = 0;
   const seen = new Set();
   for (const f of m.files) {
@@ -207,12 +395,12 @@ export function checkManifest(text) {
 }
 
 // Uploads per client address per hour (the address only as a salted hash).
-async function rateLimit(request, env, bytes) {
+async function rateLimit(request, env, bytes, bucket = 'rl', maxUploads = UPLOADS_PER_HOUR, maxBytes = BYTES_PER_HOUR) {
   const ip = request.headers.get('cf-connecting-ip') || 'local';
   const hour = Math.floor(Date.now() / 3600000);
-  const key = `rl:${(await sha256Hex(new TextEncoder().encode(`${env.IP_SALT || ''}|${ip}`))).slice(0, 24)}:${hour}`;
+  const key = `${bucket}:${(await sha256Hex(new TextEncoder().encode(`${env.IP_SALT || ''}|${ip}`))).slice(0, 24)}:${hour}`;
   const used = JSON.parse((await env.CONTENT.get(key)) || '{"n":0,"b":0}');
-  if (used.n + 1 > UPLOADS_PER_HOUR || used.b + bytes > BYTES_PER_HOUR) return false;
+  if (used.n + 1 > maxUploads || used.b + bytes > maxBytes) return false;
   await env.CONTENT.put(key, JSON.stringify({ n: used.n + 1, b: used.b + bytes }), { expirationTtl: 7200 });
   return true;
 }
@@ -249,16 +437,18 @@ export async function handleContent(request, env, url) {
     if (body.byteLength === 0) return fail(400, 'empty');
     if ((await sha256Hex(body)) !== hash) return fail(400, 'the bytes do not match the hash');
     const kind = url.searchParams.get('kind') || 'archive';
-    if (!['manifest', 'archive', 'aaf', 'wave'].includes(kind)) return fail(400, 'kind is manifest, archive, aaf or wave');
+    if (!['manifest', 'archive', 'aaf', 'wave', 'metadata', 'mask'].includes(kind)) return fail(400, 'kind is manifest, archive, aaf, wave, metadata or mask');
+    const small = kind === 'metadata' || kind === 'mask'; // colour pack files: their own size limit and upload budget
     if (kind === 'manifest') {
       if (body.byteLength > MAX_MANIFEST_BYTES) return fail(413, 'the manifest is too large');
       const problem = checkManifest(new TextDecoder().decode(body));
       if (problem) return fail(400, problem);
     } else {
-      const problem = kind === 'aaf' ? checkAaf(body) : kind === 'wave' ? checkWave(body) : checkArchive(body);
+      const problem = kind === 'aaf' ? checkAaf(body) : kind === 'wave' ? checkWave(body) : kind === 'metadata' ? checkMetadata(body) : kind === 'mask' ? await checkMask(body) : checkArchive(body);
       if (problem) return fail(415, problem);
     }
-    if (!(await rateLimit(request, env, body.byteLength))) return fail(429, 'too many uploads: try again later');
+    const allowed = small ? await rateLimit(request, env, body.byteLength, 'rm', MASK_UPLOADS_PER_HOUR, MASK_BYTES_PER_HOUR) : await rateLimit(request, env, body.byteLength);
+    if (!allowed) return fail(429, 'too many uploads: try again later');
     await env.CONTENT.put(key, body, { expirationTtl: CONTENT_TTL });
     return reply(null, 201);
   }
