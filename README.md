@@ -197,6 +197,9 @@ editors, online play and host features) and `src/runtime/bod_*.cpp` (their game-
 - **[Aurora](https://github.com/encounter/aurora)** by encounter, the renderer.
 - **[Dolphin](https://dolphin-emu.org/)** (GPL-2.0-or-later): the Zelda audio microcode and GBA link are ported from it.
 - **[Better Wind Waker](https://github.com/WideBoner/betterww)**, whose switches the enhancements follow.
+- **[2Ship2Harkinian](https://github.com/HarbourMasters/2ship2harkinian)** (CC0) and
+  **[Shipwright](https://github.com/HarbourMasters/Shipwright)** (HarbourMasters), whose gyro aiming the gyro settings
+  follow in design; the code here is our own.
 - **[Dusklight](https://github.com/TwilitRealm/dusklight)** (CC0), whose menu layout the Wind Waker theme follows.
 - **[mGBA](https://mgba.io/)** (MPL-2.0) with [emibios](https://github.com/coolbho3k/emibios) (LGPL-3.0-or-later);
   [libarchive](https://www.libarchive.org/) (BSD-2-Clause); [stb_image](https://github.com/nothings/stb) (public

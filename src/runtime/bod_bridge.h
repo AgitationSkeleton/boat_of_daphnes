@@ -36,6 +36,7 @@ unsigned long long retraceCount();
 // bod_api.cpp: its host code on its CPUState.
 void apiAttach();                                       // once, before the game runs
 void apiRetrace();                                      // each retrace, on the game thread
+void gyroFrame();                                        // each game frame after its work (gyro.cpp)
 void apiPads(void* pads, unsigned long long retrace);   // PADStatus[4] as read: the adapter's merged in
 bool apiMotorForward(unsigned channel, unsigned motor); // the game's rumble: true to drive the pads
 unsigned apiFeatureEnter(Regs regs, unsigned address);  // its intercepts (Forest Water, Quick Doors)

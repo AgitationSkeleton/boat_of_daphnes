@@ -104,6 +104,8 @@ extern "C" void bluewake_chart_reveal_enable(bool on); // runtime/host/src/chart
 extern "C" void bluewake_text_swap_enable(bool on);
 extern "C" void bluewake_text_swap_set_female(bool on);
 extern "C" void bluewake_host_set_pad_unfocused_block(bool block);
+extern "C" void bluewake_gyro_recalibrate();     // src/runtime/gyro.cpp
+extern "C" const char* bluewake_gyro_status();
 
 namespace aurora::gfx {
 float calculate_fps() noexcept;
@@ -1135,6 +1137,58 @@ void build_settings() {
             disable_unless(w, CVarGetInteger(CVAR_SETTING("Controls.Rumble.Mode"), 1) == 2, "Rumble Mode is not Enhanced");
         })
         .Callback([](WidgetInfo&) { apply_rumble(); });
+
+    // Gyro aiming (src/runtime/gyro.cpp): a controller's gyroscope steers the aim in the bow, hookshot, grappling hook,
+    // boomerang, telescope and Picto Box modes.
+    const auto gyro_off = [](WidgetInfo& w) {
+        disable_unless(w, CVarGetInteger(CVAR_SETTING("Controls.Gyro.Enabled"), 0) != 0, "Gyro Aiming is off");
+    };
+    m.AddWidget(H, "Controls", 1, "Gyro Aiming", WidgetType::SeparatorText);
+    m.AddWidget(H, "Controls", 1, "Gyro Aiming", WidgetType::CVarCheckbox)
+        .CVar(CVAR_SETTING("Controls.Gyro.Enabled"))
+        .Tooltip("Aims with the controller's gyroscope (DualSense, DualShock 4, Switch Pro, Steam Controller and other "
+                 "controllers that have one): tilt and turn the controller while aiming the bow, hookshot, grappling hook "
+                 "or boomerang, or looking through the telescope or the Picto Box. The stick still works alongside it.");
+    m.AddWidget(H, "Controls", 1, "Gyro Is Used In", WidgetType::CVarCombobox)
+        .CVar(CVAR_SETTING("Controls.Gyro.Mode"))
+        .Items({"Aiming Only", "Aiming and First-Person Look"})
+        .DefaultValue(0)
+        .Tooltip("Aiming Only: the bow, hookshot, grappling hook, boomerang, telescope and Picto Box.\n"
+                 "Aiming and First-Person Look: also the plain first-person view (C-Stick up).")
+        .PreFunc(gyro_off);
+    m.AddWidget(H, "Controls", 1, "Horizontal Sensitivity: %d %%", WidgetType::CVarSliderInt)
+        .CVar(CVAR_SETTING("Controls.Gyro.SensitivityX"))
+        .Range(10, 400, 5)
+        .DefaultValue(100)
+        .Tooltip("How far the aim turns left and right for a turn of the controller. 100 % follows the controller 1:1.")
+        .PreFunc(gyro_off);
+    m.AddWidget(H, "Controls", 1, "Vertical Sensitivity: %d %%", WidgetType::CVarSliderInt)
+        .CVar(CVAR_SETTING("Controls.Gyro.SensitivityY"))
+        .Range(10, 400, 5)
+        .DefaultValue(100)
+        .Tooltip("How far the aim turns up and down for a tilt of the controller. 100 % follows the controller 1:1.")
+        .PreFunc(gyro_off);
+    m.AddWidget(H, "Controls", 1, "Invert Gyro Horizontal Axis", WidgetType::CVarCheckbox)
+        .CVar(CVAR_SETTING("Controls.Gyro.InvertX"))
+        .Tooltip("Turns the aim right when the controller turns left.")
+        .PreFunc(gyro_off);
+    m.AddWidget(H, "Controls", 1, "Invert Gyro Vertical Axis", WidgetType::CVarCheckbox)
+        .CVar(CVAR_SETTING("Controls.Gyro.InvertY"))
+        .Tooltip("Aims down when the controller tilts up.")
+        .PreFunc(gyro_off);
+    m.AddWidget(H, "Controls", 1, "Keep Gyro Calibrated", WidgetType::CVarCheckbox)
+        .CVar(CVAR_SETTING("Controls.Gyro.AutoCalibrate"))
+        .DefaultValue(1)
+        .Tooltip("Follows the gyroscope's drift while the controller rests, so the aim does not creep.")
+        .PreFunc(gyro_off);
+    m.AddWidget(H, "Controls", 1, "Recalibrate Gyro", WidgetType::Button)
+        .Tooltip("Sets the gyroscope's resting offset again: put the controller down, or hold it still, for a second. "
+                 "Use it if the aim creeps on its own.")
+        .PreFunc(gyro_off)
+        .Callback([](WidgetInfo&) { bluewake_gyro_recalibrate(); });
+    m.AddWidget(H, "Controls", 1, "Gyro Status", WidgetType::Custom).HideInSearch().CustomFunction([](WidgetInfo&) {
+        ImGui::Text("Status: %s", bluewake_gyro_status());
+    });
 
     // Tingle Tuner
     m.AddSidebar(H, "Tingle Tuner", 2);
