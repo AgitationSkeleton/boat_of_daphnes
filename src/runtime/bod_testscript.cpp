@@ -310,7 +310,9 @@ bool runCommand(const Command& c, bool first, u64 since) {
         return false;
     }
     // ---- everything below changes the game or looks at it ----
-    if (v == "warp") {
+    if (v == "warp" || v == "ride") {
+        // ride STAGE ROOM [POINT [LAYER [WIPE]]]: the same, but Link arrives on the King of Red Lions (the restart's last scene mode 6,
+        // as the ship's own crossings leave it; needs MET_KORL and a sea stage).
         // warp STAGE ROOM [POINT [LAYER [WIPE]]]: a scene change as a door makes one. Waits for the scene it leaves to be
         // playable, asks, checks the game took it up (asks again if not) and waits for the new scene.
         if (a.size() < 2) return log("line %d: warp STAGE ROOM [POINT [LAYER]]", c.line), true;
@@ -318,6 +320,7 @@ bool runCommand(const Command& c, bool first, u64 since) {
         if (S.phase == 0) {
             if (!safe && !timedOut(3600, "no playable moment to warp from")) return false;
             if (elapsed >= 3600) return true;
+            if (v == "ride") mem_write32(cpu(), 0x803C4C08u + 0x1128u + 0x2Cu, 6);
             writeStage(a[0], room, point, layer, wipe);
             log("warp %s room %d point %d layer %d (from %s room %d)", a[0].c_str(), room, point, layer, stageName().c_str(), loc.room);
             S.phase = 1, S.phase_at = t, S.tries = 1;

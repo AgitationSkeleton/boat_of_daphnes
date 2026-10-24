@@ -46,6 +46,7 @@ constexpr unsigned kInfoBytes = 0x1260;   // through mTmp (+0x1158, 0x100 bytes)
 constexpr unsigned kMemory = 0x380;       // dSv_save_c::mMemory[16], 0x24 each
 constexpr unsigned kEvent = 0x624;        // dSv_save_c::mEvent (256 bytes)
 constexpr unsigned kCurrentMemory = 0x778; // dSv_info_c::mMemory (the stage Link is in)
+constexpr unsigned kRestart = 0x1128;    // dSv_info_c::mRestart
 constexpr unsigned kTmpEvent = 0x1158;    // dSv_info_c::mTmp
 constexpr unsigned kPlayerPtr = 0x803CA754u; // play.mpPlayerPtr[0]
 constexpr unsigned kNextStage = 0x803C9D48u; // play.mNextStage
@@ -642,6 +643,7 @@ std::string help_text() {
            "  clear                             empties the console\n"
            "  pos                               the stage, room and Link's place\n"
            "  warp <stage> <room> [point] [layer]   a scene change, as a door makes one\n"
+           "  ride <stage> <room> [point] [mode]   a scene change that starts Link on the King of Red Lions\n"
            "  teleport <stage> <room> <x> <y> <z> [angle]   Link to a place in a stage\n"
            "  flag <get|set|clear> <event|tmp> <id>   an event flag (id as 0x0A04: byte, then bit mask)\n"
            "  give <item> [count]               an item in its slot (name or number; count for bombs and arrows)\n"
@@ -709,13 +711,21 @@ std::string RunCommand(const std::string& line) {
         std::fprintf(stderr, "[console] actors %s: %u of %u: %s\n", needle.c_str(), shown, count, result.c_str());
         return std::to_string(shown) + " actors" + (result.empty() ? "" : ": " + result);
     }
-    if (cmd == "warp") {
+    if (cmd == "warp" || cmd == "ride") {
+        // ride: the same scene change, but the player's start is "arriving by ship" (dSv_restart_c::mLastMode 6, what
+        // dComIfGp_setNextStage's caller passes when the ship carries Link over), so Link comes up on the King of Red
+        // Lions (daPy_lk_c::create: the ship is moved under him). Needs the ship's owner to have met him (MET_KORL).
         long room, point = 0, layer = -1;
         if (w.size() < 3 || w[1].size() > 8 || !number(w[2], &room))
-            return "usage: warp <stage> <room> [point] [layer]";
+            return cmd == "ride" ? "usage: ride <stage> <room> [point] [mode]" : "usage: warp <stage> <room> [point] [layer]";
         if (w.size() > 3)
             number(w[3], &point);
-        if (w.size() > 4)
+        if (cmd == "ride") {
+            long mode = 6;
+            if (w.size() > 4)
+                number(w[4], &mode);
+            bluewake_dev_write(kInfo + kRestart + 0x2C, static_cast<unsigned>(mode), 4);
+        } else if (w.size() > 4)
             number(w[4], &layer);
         char name[8] = {0};
         std::memcpy(name, w[1].c_str(), w[1].size());

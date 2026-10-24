@@ -1,0 +1,84 @@
+description Other players' King of Red Lions: each puppet's boat wears its own player's colours (a mate's set, a mate's none) while mine is my own
+# Local Anchor server on 127.0.0.1:8813; once SAILING is logged, two mates record the game's sailing poses and replay them beside it:
+#   MATE_NAME=Painted MATE_COLORS=Equip.Ship.Hull=0000ff,... MATE_DX=-400 node test/pose_replay.mjs ws://127.0.0.1:8813 colt 8 200
+#   MATE_NAME=Plain MATE_DX=400 node test/pose_replay.mjs ws://127.0.0.1:8813 colt 8 200       (no colours: the game's red boat)
+windowed
+timeout 600
+save 5-BombsEarly
+cvar gNetwork.Anchor.Enabled 1
+cvar gNetwork.Anchor.Host 127.0.0.1:8813
+cvar gNetwork.Anchor.Room colt
+cvar gNetwork.Anchor.Name Tester
+cvar gNetwork.Anchor.Team blue
+start load
+wait link
+ride sea 45 0
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+press A 8
+wait 40
+wait noevent
+wait link
+console cosmetic equip:Equip.Ship.Hull=ff8000
+wait 60
+shot mine
+log SAILING
+wait 900
+shot boats1
+wait 300
+shot boats2
+wait 300
+shot boats3
+wait 300
+shot boats4
+wait 300
+shot boats5
+wait 120

@@ -59,6 +59,7 @@ it, no event, no scene change, steady for 20 retraces).
 | `time DEGREES [hold]` | time of day in degrees, 0 to 360 (15 an hour, as the Save Editor's slider); `hold` keeps it |
 | `console TEXT` | any Dev Tools console command (`spawn`, `actors`, `pos`, ...) |
 | `warp STAGE ROOM [POINT [LAYER [WIPE]]]` | a scene change as a door makes one; waits for it, asks again if the game ignored the first |
+| `ride STAGE ROOM [POINT [LAYER [WIPE]]]` | `warp`, but Link arrives on the King of Red Lions (the restart's last scene mode 6; a sea stage, after MET_KORL). A mid-story save plays a short cutscene on arrival |
 | `teleport STAGE ROOM X Y Z [ANGLE]` | Link to a place (the restart record), as Anchor's teleport |
 | `press BUTTON[+BUTTON] [FRAMES]` | A B X Y START Z R L UP DOWN LEFT RIGHT, held 8 retraces by default |
 | `hold BUTTON` / `release [BUTTON\|all]` | held until released |
