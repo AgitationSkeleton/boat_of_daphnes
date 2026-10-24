@@ -33,6 +33,8 @@ function player(name, teamId, stage) {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const got = (p, type, pred = () => true) => p.inbox.some((m) => m.type === type && pred(m));
+// waits until cond() holds (polling every 50 ms) or ms pass: slow CI runners can take longer than a fixed wait
+const until = async (cond, ms = 3000) => { for (let t = 0; t < ms && !cond(); t += 50) await wait(50); };
 
 const a = await player('Ann', 'red', 'sea');
 await wait(300);
@@ -54,7 +56,8 @@ await wait(300);
 check(got(a, 'SERVER_PING_TEST') && !got(b, 'SERVER_PING_TEST'), 'targeted message reaches only its player');
 
 a.ws.send(JSON.stringify({ type: 'PLAYER_UPDATE', pos: [0, 0, 0] }));
-await wait(300);
+await until(() => got(b, 'PLAYER_UPDATE'));
+await wait(300);  // (and time for a wrong delivery to the other stage to show)
 check(got(b, 'PLAYER_UPDATE') && !got(c, 'PLAYER_UPDATE'), 'pose goes only to the same stage');
 
 c.ws.send(JSON.stringify({ type: 'UPDATE_ROOM_STATE', roomState: { pvpMode: 1 } }));
