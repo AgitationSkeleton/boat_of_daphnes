@@ -74,6 +74,11 @@ constexpr const char* kModRando = "tww_game_rando.so";
 #endif
 constexpr const char* kStampGame = "tww_game.txt";
 constexpr const char* kStampRando = "tww_game_rando.txt";
+// The Cosmetics Editor's, Swift Sail's and the Bunny Hood's data (assets/, made by the scripts in rando/) has a stamp of its
+// own, so an update that changes them (new equipment textures, say) rebuilds just that, without compiling the game again.
+// Bump kExtrasVersion with any change to what they make that the scripts' own text does not show.
+constexpr int kExtrasVersion = 2;
+constexpr const char* kStampExtras = "assets/extras.txt";
 
 std::string u8(const fs::path& p) {
     const std::u8string s = p.u8string();
@@ -427,6 +432,28 @@ bool haveRando(const fs::path& exeDir) {
     std::error_code ec;
     return fs::exists(randoPython(exeDir), ec) && fs::exists(randoDir(exeDir) / "patch_game.py", ec);
 }
+// What the extras stamp says when the data is current: kExtrasVersion and a hash of the three scripts as shipped in rando/.
+std::string extrasStampText(const fs::path& exeDir) {
+    uint64_t h = 1469598103934665603ull;
+    for (const char* name : {"link_colors.py", "swift_sail.py", "bunny_hood.py"}) {
+        std::ifstream in(randoDir(exeDir) / name, std::ios::binary);
+        char buf[4096];
+        while (in.read(buf, sizeof buf) || in.gcount() > 0)
+            for (std::streamsize i = 0; i < in.gcount(); i++) h = (h ^ uint8_t(buf[i])) * 1099511628211ull;
+        h = (h ^ 0xFF) * 1099511628211ull;
+    }
+    char b[64];
+    std::snprintf(b, sizeof b, "extras=%d\nscripts=%016llx\n", kExtrasVersion, static_cast<unsigned long long>(h));
+    return b;
+}
+bool extrasCurrent(const fs::path& exeDir) {
+    std::error_code ec;
+    if (!fs::exists(exeDir / "assets" / "link_colors" / "index.json", ec)) return false;
+    std::ifstream in(exeDir / kStampExtras);
+    std::stringstream s;
+    s << in.rdbuf();
+    return s.str() == extrasStampText(exeDir);
+}
 #if !defined(_WIN32)
 // A program on the PATH (the system's compiler, when none is bundled).
 fs::path onPath(const std::string& name) {
@@ -551,6 +578,7 @@ bool FirstRun::needed(const fs::path& exeDir, const fs::path& disc) {
     if (!fs::exists(exeDir / kModGame, ec) || readStamp(exeDir / kStampGame).version != buildVersion()) return true;
     if (haveRando(exeDir) && (!fs::exists(exeDir / kModRando, ec) || readStamp(exeDir / kStampRando).version != buildVersion()))
         return true;
+    if (haveRando(exeDir) && !extrasCurrent(exeDir)) return true;  // only the data is made again (run)
     return false;
 }
 
@@ -633,20 +661,25 @@ void FirstRun::run() {
             }
             fs::remove(probe, ec);
         }
-        const Tools tools = findTools(m_exeDir);
-        m_clang = tools.clang, m_linker = tools.link, m_toolEnv = tools.env;
+        // (the compiler is only needed when a program is built: the data alone is made without it)
+        const bool building = !fs::exists(m_exeDir / kModGame, ec) || readStamp(m_exeDir / kStampGame).version != buildVersion() ||
+                              (haveRando(m_exeDir) && (!fs::exists(m_exeDir / kModRando, ec) || readStamp(m_exeDir / kStampRando).version != buildVersion()));
+        if (building) {
+            const Tools tools = findTools(m_exeDir);
+            m_clang = tools.clang, m_linker = tools.link, m_toolEnv = tools.env;
 #if defined(_WIN32)
-        if (!tools.ok() || !fs::exists(m_exeDir / "boat-of-daphnes.lib", ec)) {
-            fail("Files the setup needs are missing (tools/llvm, boat-of-daphnes.lib). Extract the whole download again.");
-            break;
-        }
+            if (!tools.ok() || !fs::exists(m_exeDir / "boat-of-daphnes.lib", ec)) {
+                fail("Files the setup needs are missing (tools/llvm, boat-of-daphnes.lib). Extract the whole download again.");
+                break;
+            }
 #else
-        if (!tools.ok()) {
-            fail("The setup needs a compiler and the files it comes with are missing (tools/llvm). Extract the whole download again, "
-                 "or install clang and lld with your package manager.");
-            break;
-        }
+            if (!tools.ok()) {
+                fail("The setup needs a compiler and the files it comes with are missing (tools/llvm). Extract the whole download again, "
+                     "or install clang and lld with your package manager.");
+                break;
+            }
 #endif
+        }
         fs::remove_all(m_work, ec);
         fs::create_directories(m_work, ec);
         // The game: built unless the one there was built by this version.
@@ -663,6 +696,10 @@ void FirstRun::run() {
             if (!buildGame(RandoPatch, m_exeDir / "game" / "rando" / "GZLE99.iso", kModRando, "gen_rando", true, sha1)) break;
             if (!extras()) break;
             writeStamp(m_exeDir / kStampRando, sha1);
+        } else if (haveRando(m_exeDir) && !extrasCurrent(m_exeDir)) {
+            // The programs are current, the data made by the scripts is not (an update): just that, a few seconds.
+            log("the extras are not current: making them again");
+            if (!extrasData("Updating Link's colours...")) break;
         }
         ok = !m_cancel;
     } while (false);
@@ -1020,7 +1057,13 @@ bool FirstRun::extras() {
             std::ofstream(m_exeDir / "game" / "rando" / "rels" / "d_a_ship.rel", std::ios::binary).write(reinterpret_cast<const char*>(rel.data()), std::streamsize(rel.size()));
         }
     }
-    set(Extras, 0.5f, "Link's colours and Swift Sail's textures");
+    return extrasData("Link's colours and Swift Sail's textures");
+}
+
+// The Cosmetics Editor's Link colours, Swift Sail's textures and the Bunny Hood, from the disc, by the scripts in rando/.
+bool FirstRun::extrasData(const char* title) {
+    std::error_code ec;
+    set(Extras, 0.5f, title);
     {
         const fs::path rando = randoDir(m_exeDir);
         const Env env = {{"PYTHONPATH", u8(rando / "site-packages")}, {"RANDO_RUNTIME", u8(rando)}};
@@ -1031,6 +1074,7 @@ bool FirstRun::extras() {
             // the Bunny Hood's model and icon, made from the disc's wall mask and Link (Boat of Daphnes' bunny_hood.py)
             {u8(rando / "bunny_hood.py"), iso, u8(m_exeDir / "assets" / "bunnyhood")}};
         int n = 0;
+        m_failedJobs = 0;
         for (const Args& args : jobs) {
             Job job = makeJob();
             Child c;
@@ -1038,16 +1082,23 @@ bool FirstRun::extras() {
             if (!spawn(job, randoPython(m_exeDir), args, rando, m_work / ("extras" + std::to_string(n) + ".log"), c, err, env)) {
                 closeJob(job);
                 log("not made: " + err);
+                m_failedJobs++;
                 continue;
             }
             int code = 1;
             while (!reap(c, code, 1000)) {}
             closeJob(job);
+            if (code != 0) m_failedJobs++;
             if (code != 0) log("extras " + std::to_string(n) + " failed:\n" + tailText(m_work / ("extras" + std::to_string(n) + ".log"), 10));
             set(Extras, 0.5f + 0.5f / 3.f * float(++n), "Link's colours, Swift Sail's textures and the Bunny Hood");
         }
     }
     set(Extras, 1, "");
+    // The stamp only when all three were made (a failed one is tried again at the next start).
+    if (m_failedJobs == 0) {
+        fs::create_directories(m_exeDir / "assets", ec);
+        std::ofstream(m_exeDir / kStampExtras) << extrasStampText(m_exeDir);
+    }
     return true;
 }
 
