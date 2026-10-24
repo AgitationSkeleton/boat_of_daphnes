@@ -41,6 +41,12 @@ if (_dirty EQUAL 0)
 else ()
     message(STATUS "Aurora has local changes: taken as the patched tree (patches/aurora), left as is")
 endif ()
+# Aurora takes zlib from find_package, then pkg-config, else builds its own. A devkitPro/MSYS2 pkg-config on PATH would
+# hand it MSYS's zlib (not linkable here), so on Windows pkg-config is not consulted and nothing under those is searched.
+if (WIN32)
+    set(CMAKE_DISABLE_FIND_PACKAGE_PkgConfig ON)
+    list(APPEND CMAKE_IGNORE_PREFIX_PATH C:/devkitPro C:/msys64 C:/msys2 C:/MinGW)
+endif ()
 set(AURORA_ENABLE_DVD OFF CACHE BOOL "" FORCE)
 set(AURORA_ENABLE_CARD OFF CACHE BOOL "" FORCE)
 add_subdirectory(extern/aurora EXCLUDE_FROM_ALL)

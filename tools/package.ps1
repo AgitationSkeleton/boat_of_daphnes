@@ -3,7 +3,7 @@
 # game and the randomizer from it (src/setup/firstrun.cpp), with the bundled compiler (tools\llvm) and the randomizer's
 # generator (rando\: an embedded Python, wwrando and gclib, the seed and patch scripts).
 #
-#   powershell -File tools\package.ps1 [-Version 1.0.0] [-Build build\windows-clang] [-Llvm <clang folder>] [-NoZip]
+#   powershell -File tools\package.ps1 [-Version 1.0.0] [-Build build\windows-clang] [-Llvm <clang folder>]  (default: buildlvm, else Visual Studio's own) [-NoZip]
 #
 # Checks before zipping: every file the first start needs is there, and nothing made from a disc is (game code, game\,
 # the extras the first start makes: assets\link_colors, swift_sail, bunnyhood).
@@ -39,10 +39,21 @@ foreach ($f in 'boat-of-daphnes.exe', 'boat-of-daphnes.lib', 'SDL3.dll', 'webgpu
                'libpng16.dll', 'zlib1.dll') {
     Put (Join-Path $Build $f) $f
 }
-# the Visual C++ runtime (the program is built with the MSVC STL)
-$redist = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT" -Directory -ErrorAction SilentlyContinue |
-    Sort-Object FullName | Select-Object -Last 1
-if (-not $redist) { throw "no Visual C++ redistributable folder found (Visual Studio 2022's VC\Redist)" }
+# Visual Studio (2022 or newer, with the Clang component): the redistributable runtime and, if none is given, clang
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$vs = $null
+if (Test-Path $vswhere) {
+    $vs = (& $vswhere -latest -products * -version '[17.0,)' -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath | Select-Object -First 1)
+}
+
+# the Visual C++ runtime (the program is built with the MSVC STL): the newest VC14x CRT folder
+$redist = $null
+if ($vs) {
+    $redist = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC14*.CRT" -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '\\(onecore|debug_nonredist)\\' } |
+        Sort-Object { [version]($_.FullName -replace '^.*\\MSVC\\([\d.]+)\\.*$', '$1') } | Select-Object -Last 1
+}
+if (-not $redist) { throw "no Visual C++ redistributable folder found (VC\Redist\MSVC\<version>\x64\Microsoft.VC14x.CRT of Visual Studio 2022 or newer with the Clang component)" }
 foreach ($f in 'msvcp140.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
     Put (Join-Path $redist.FullName $f) $f
 }
@@ -51,8 +62,13 @@ foreach ($f in 'msvcp140.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', '
 if (-not $Llvm) {
     foreach ($c in "build\llvm", "..\SA2BRecomp\build\llvm") { if (Test-Path "$c\clang.exe") { $Llvm = $c; break } }
 }
+if (-not $Llvm -and $vs -and (Test-Path "$vs\VC\Tools\Llvm\x64\bin\clang.exe")) { $Llvm = "$vs\VC\Tools\Llvm\x64\bin" }
 if (-not $Llvm) { throw "no clang folder (clang.exe, lld-link.exe): pass -Llvm" }
-foreach ($f in 'clang.exe', 'lld-link.exe', 'LICENSE.TXT') { Put (Join-Path $Llvm $f) "tools\llvm\$f" }
+foreach ($f in 'clang.exe', 'lld-link.exe') { Put (Join-Path $Llvm $f) "tools\llvm\$f" }
+# LLVM's licence (Apache-2.0 with LLVM exceptions) goes with its binaries; Visual Studio's folder has none
+$llvmLicense = Join-Path $Llvm 'LICENSE.TXT'
+if (-not (Test-Path $llvmLicense)) { $llvmLicense = Join-Path $PSScriptRoot 'llvm-LICENSE.TXT' }
+Put $llvmLicense "tools\llvm\LICENSE.TXT"
 
 # --- the randomizer's generator ---
 Need "$Runtime\python\python.exe"

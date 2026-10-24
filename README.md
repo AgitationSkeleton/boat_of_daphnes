@@ -117,24 +117,27 @@ flag viewer and actor viewer.
 
 ## Build it yourself
 
-You need Windows with Visual Studio 2022 (Desktop development with C++, plus its Clang tools), CMake, Ninja, Git and
-Python 3.
+You need Windows with Visual Studio 2022 or newer (any edition, or the Build Tools) with the "Desktop development with
+C++" workload and the "C++ Clang tools for Windows" component, plus Git and Python 3. CMake and Ninja come with Visual
+Studio. Run the commands from a "x64 Native Tools" or Developer prompt, or let `tools\build.cmd` (or `tools\build.ps1`)
+do it: they find Visual Studio with vswhere, take its clang-cl, CMake and Ninja, and keep devkitPro/MSYS2 off the PATH.
 
 ~~~bat
 git clone --recursive https://github.com/AgitationSkeleton/boat_of_daphnes
 cd boat_of_daphnes
-cmake --preset windows-clang
-cmake --build --preset windows-clang --target tww
+tools\build.cmd
 ~~~
 
-This builds `build\windows-clang\boat-of-daphnes.exe`. Aurora (the renderer, `extern/aurora`) is patched from
+(`tools\build.cmd [target]` is `cmake --preset windows-clang` and `cmake --build build\windows-clang --target tww` in
+that environment.) This builds `build\windows-clang\boat-of-daphnes.exe`. Aurora (the renderer, `extern/aurora`) is patched from
 `patches/aurora` automatically. Then:
 
 - `python tools\rando\rando_runtime.py` fetches the randomizer's generator: an embedded Python, wwrando and gclib,
   each checked against a pinned hash.
 - `python tools\rando\install_dev.py` sets up the generator, the randomizer's reference disc and the extras beside the
   program you built, for development. A player's first start does the same through `src/setup`.
-- `powershell -File tools\package.ps1 -Version <version>` makes the release zip in `dist\`. It carries the program, the
+- `powershell -File tools\package.ps1 -Version <version>` makes the release zip in `dist\` (after the Windows build and
+  `rando_runtime.py`; the compiler comes from Visual Studio's own LLVM unless `-Llvm <folder>` says otherwise). It carries the program, the
   bundled compiler the first start builds the game with, and the randomizer's generator, and it refuses to include
   anything made from a disc.
 

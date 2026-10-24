@@ -1,4 +1,4 @@
-# Configure + build with Visual Studio 2022's clang-cl and Ninja.
+# Configure + build with Visual Studio's clang-cl (2022 or newer) and Ninja.
 # Usage: tools/build.ps1 [-Target <name>]
 param([string]$Target = "")
 $ErrorActionPreference = 'Continue'

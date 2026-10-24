@@ -1,0 +1,60 @@
+name: Anchor server
+
+on:
+  push:
+    paths:
+      - 'server/anchor/**'
+      - '.github/workflows/server.yml'
+  pull_request:
+    paths:
+      - 'server/anchor/**'
+      - '.github/workflows/server.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: server/anchor
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/anchor/package-lock.json
+
+      - run: npm ci
+
+      # The tests that stand alone: they talk to a running server (wrangler's local mode, no Cloudflare account or secrets).
+      # The *_mate scripts and pose_replay.mjs are partners for the game's own scenarios and need a game.
+      - name: Start the server locally
+        run: |
+          npx wrangler dev --local --port 8787 > wrangler.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -s -o /dev/null http://127.0.0.1:8787/; then echo "server up after $i s"; exit 0; fi
+            sleep 1
+          done
+          cat wrangler.log
+          echo "the server did not start" >&2
+          exit 1
+
+      - name: Tests
+        run: |
+          status=0
+          for t in "room.mjs" "carry.mjs" "content.mjs http://127.0.0.1:8787" "stale_prune.mjs ws://127.0.0.1:8787" "token_reconnect.mjs ws://127.0.0.1:8787 tok-$GITHUB_RUN_ID"; do
+            echo "::group::$t"
+            node test/$t || status=1
+            echo "::endgroup::"
+          done
+          exit $status
+
+      - name: Server log
+        if: always()
+        run: cat wrangler.log || true
