@@ -36,7 +36,9 @@ extern "C" {
 #include "mod_archive.h"
 #include "mods_host.h"
 #include "player_model.h"
+#include "voice_swap.h"
 #include "game_state.h"
+void bw_settings_restart_now(void); // win_settings.cpp
 unsigned long long bluewake_host_retrace_count(void); // main.c
 }
 
@@ -99,8 +101,20 @@ bool g_dirty; // the list changed since the last Apply
 std::string g_status;
 std::string g_link_from = "-"; // the entry Link.arc came from at the last Apply ("" the disc's)
 std::string g_color_model;     // the player model entry whose Link.arc the last Apply put in effect ("" none)
-std::string g_boot_voice_id; // the voice files the game loaded at start (see LoadedVoiceId)
+std::string g_boot_voice_id; // the voice files the game has loaded (at start; a live swap updates it; see LoadedVoiceId)
 bool g_boot_voice_set;
+// The voice swapped in while the game runs (voice_swap.h): the JaiInit.aaf and wave files the game holds now, the id and
+// files being swapped in, and whether the swap was refused (the Mod Menu then offers a restart).
+struct VoiceFiles {
+    std::vector<unsigned char> aaf;
+    std::map<std::string, std::vector<unsigned char>> aws; // by file name: voice_0.aw, GanonT_0.aw
+};
+VoiceFiles g_voice_loaded, g_voice_target;
+std::string g_voice_target_id;
+bool g_voice_pending;       // a swap was asked for and has not finished
+std::chrono::steady_clock::time_point g_voice_asked;
+bool g_voice_needs_restart; // the swap was refused: the voice is the old one until the game starts again
+bool g_voice_later;         // "Later" was chosen for this change
 std::string g_plan_link, g_plan_equip, g_plan_voice; // the entries that gave Link, Equipment and the voice at the last Apply ("" the game's)
 void (*g_model_listener)();
 
@@ -628,6 +642,56 @@ const char* const kLinkGroup[] = {"res/Object/LkAnm.arc", "res/Object/LkD00.arc"
 // entry that has it. Paths no longer given return to the disc's.
 std::string voice_id_of_plan(const Plan& plan) { return plan.voice ? voice_id(*plan.voice) : std::string(); }
 
+// The voice files a voice entry (null: the game's) gives, each from the mod, else from the disc as the game would read it.
+bool voice_files(const Entry* voice, VoiceFiles& out) {
+    static const std::pair<const char*, const char*> kFiles[] = {{"Audiores/Banks/voice_0.aw", "voice_0.aw"},
+                                                                  {"Audiores/Banks/GanonT_0.aw", "GanonT_0.aw"}};
+    out = VoiceFiles{};
+    ModArchive* a = nullptr;
+    const auto get = [&](const char* disc, std::vector<unsigned char>& bytes) {
+        const Mapped* f = voice ? find_disc(*voice, disc) : nullptr;
+        if (f != nullptr)
+            read_entry_file(*voice, a, f->member, bytes);
+        if (bytes.empty())
+            bytes = disc_file(disc);
+    };
+    get("Audiores/JaiInit.aaf", out.aaf);
+    for (const auto& [disc, name] : kFiles)
+        get(disc, out.aws[name]);
+    if (a)
+        mod_archive_close(a);
+    return !out.aaf.empty() && !out.aws["voice_0.aw"].empty();
+}
+
+// Asks the runtime to put the plan's voice in effect now (voice_swap.h). The result comes back through Frame().
+void start_voice_swap(const Plan& plan, std::string& note) {
+    if (!voice_files(plan.voice && !g_plan_voice.empty() ? plan.voice : nullptr, g_voice_target)) {
+        g_voice_needs_restart = true;
+        note += "; the voice changes at the next start";
+        return;
+    }
+    std::vector<const char*> names;
+    std::vector<const void*> data;
+    std::vector<size_t> sizes;
+    for (const auto& [name, bytes] : g_voice_target.aws) {
+        names.push_back(name.c_str());
+        data.push_back(bytes.data());
+        sizes.push_back(bytes.size());
+    }
+    g_voice_target_id = voice_id_of_plan(plan);
+    g_voice_later = false;
+    g_voice_needs_restart = false;
+    if (bluewake_voice_swap(g_voice_loaded.aaf.data(), g_voice_loaded.aaf.size(), g_voice_target.aaf.data(),
+                            g_voice_target.aaf.size(), names.data(), data.data(), sizes.data(), static_cast<int>(names.size()))) {
+        g_voice_pending = true;
+        g_voice_asked = std::chrono::steady_clock::now();
+        note += "; the voice changes now";
+    } else {
+        g_voice_needs_restart = true;
+        note += "; the voice changes at the next start";
+    }
+}
+
 void apply() {
     std::map<std::string, std::pair<const Entry*, std::string>> want; // disc path -> entry, member
     if (g_link_slot == 0) // the first Apply, before the game runs: Link's room for this session
@@ -769,8 +833,16 @@ void apply() {
         g_boot_voice_id = plan.voice && !g_plan_voice.empty() ? voice_id(*plan.voice) : "";
         if (!g_boot_voice_id.empty())
             std::fprintf(stderr, "[mods] voice at start: %s (%s)\n", plan.voice->name.c_str(), g_boot_voice_id.c_str());
-    } else if (voice_id_of_plan(plan) != g_boot_voice_id) {
-        model_note += "; the voice changes at the next start";
+        voice_files(plan.voice && !g_plan_voice.empty() ? plan.voice : nullptr, g_voice_loaded); // what the game holds
+    } else {
+        // A voice other than the loaded one is put in effect now (the runtime swaps the wave tables and files); when
+        // that is not possible the Mod Menu offers a restart. A swap still waiting for a change that was undone is
+        // replaced by one back to what is loaded.
+        const std::string wanted = plan.voice && !g_plan_voice.empty() ? voice_id_of_plan(plan) : std::string();
+        if (wanted != (g_voice_pending ? g_voice_target_id : g_boot_voice_id))
+            start_voice_swap(plan, model_note);
+        else if (!g_voice_pending)
+            g_voice_needs_restart = false; // (changed back by hand)
     }
     // The colors follow the model whose body is in effect.
     const std::string color_model = g_plan_link;
@@ -878,7 +950,8 @@ bool draw_use(Entry& e) {
         }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("This mod's voice files. By default the voice goes with Link. The game reads its voice once, "
-                              "so a change shows at the next start.");
+                              "so a change is swapped in while it runs, when no voice of Link's is playing; if that cannot "
+                              "be done the Mod Menu offers a restart.");
     }
     return changed;
 }
@@ -1143,6 +1216,31 @@ bool ActivePlayerPack(std::string& name, std::vector<PackFile>& out, SharedParts
     return !out.empty();
 }
 
+void Frame() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_voice_pending)
+        return;
+    int state = bluewake_voice_swap_state();
+    // The game makes the swap in its frames (a title or a loading screen with no frames, a switch of the program in
+    // between): not made in a minute, it is not coming.
+    if (state == 1 && std::chrono::steady_clock::now() - g_voice_asked > std::chrono::seconds(60))
+        state = -1;
+    if (state == 2) {
+        g_voice_pending = false;
+        g_voice_needs_restart = false;
+        g_boot_voice_id = g_voice_target_id;
+        g_voice_loaded = std::move(g_voice_target);
+        g_status = "The voice is changed.";
+        std::fprintf(stderr, "[mods] voice changed live (%s)\n", g_boot_voice_id.empty() ? "the game's" : g_boot_voice_id.c_str());
+    } else if (state < 0) {
+        g_voice_pending = false;
+        g_voice_needs_restart = true;
+        g_voice_later = false;
+        g_status = "The voice changes at the next start.";
+        std::fprintf(stderr, "[mods] the voice could not be changed live; it changes at the next start\n");
+    }
+}
+
 std::string LoadedVoiceId() {
     std::lock_guard<std::mutex> lock(g_mutex);
     return g_boot_voice_id;
@@ -1234,6 +1332,15 @@ void BuildMenu(shipmenu::Menu& m, const char* H) {
                               "again (the next area for most; Link's model at the next game start).");
         if (!g_status.empty())
             ImGui::TextDisabled("%s", g_status.c_str());
+        if (g_voice_needs_restart && !g_voice_later) {
+            ImGui::Spacing();
+            ImGui::TextWrapped("Voice changes need the game to restart.");
+            if (ImGui::Button("Restart now", ImVec2(half, 0)))
+                bw_settings_restart_now();
+            ImGui::SameLine();
+            if (ImGui::Button("Later", ImVec2(half, 0)))
+                g_voice_later = true;
+        }
     });
 }
 

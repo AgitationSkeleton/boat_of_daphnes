@@ -208,6 +208,10 @@ private:
     std::array<s16, 8> m_unk0_reverb_last8{}, m_unk1_reverb_last8{}, m_front_left_reverb_last8{}, m_front_right_reverb_last8{};
 
     MixingBuffer* bufferForId(u16 id);
+public:
+    void readVpb(u16 voice_id, VPB* vpb) { fetchVpb(voice_id, vpb); }
+
+private:
     void fetchVpb(u16 voice_id, VPB* vpb) { readWords(reinterpret_cast<u16*>(vpb), vpb_base_addr + voice_id * 0xC0 * 2, 0xC0 * 2); }
     void storeVpb(u16 voice_id, VPB* vpb) { writeWords(vpb_base_addr + voice_id * 0xC0 * 2, reinterpret_cast<u16*>(vpb), 0x80 * 2); }
     void loadInputSamples(MixingBuffer* buffer, VPB* vpb);
@@ -882,6 +886,22 @@ bool zeldaMail(u32 mail) {
         }
         break;
     case MailState::Halted: break;
+    }
+    return false;
+}
+
+// Whether a voice that is not finished reads its samples from ARAM in [lo, hi) (bod_voice.cpp swaps a wave file there
+// only when none does). Called on the game thread; the voice blocks are read as the DSP does.
+bool zeldaAramInUse(u32 lo, u32 hi) {
+    if (!s_renderer.vpb_base_addr) return false;
+    VPB vpb;
+    for (u16 v = 0; v < s_voicesPerFrame; ++v) {
+        s_renderer.readVpb(v, &vpb);
+        if (!vpb.enabled || vpb.done) continue;
+        const u16 t = vpb.samples_source_type;
+        if (t != VPB::SRC_AFC_LQ_FROM_ARAM && t != VPB::SRC_AFC_HQ_FROM_ARAM && t != VPB::SRC_PCM8_FROM_ARAM && t != VPB::SRC_PCM16_FROM_ARAM) continue;
+        const u32 cur = vpb.getCurrentARAMAddr(), base = vpb.getBaseAddress();
+        if ((cur >= lo && cur < hi) || (base >= lo && base < hi)) return true;
     }
     return false;
 }

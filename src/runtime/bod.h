@@ -59,5 +59,6 @@ void hostUnlinked(u32 module);
 unsigned treasureGlowHook(Ctx& c, u32 pc);  // its hook 12 (Treasure Light Up Close)
 unsigned hostHook(Ctx& c, unsigned id, u32 pc);   // its host's hooks (30/31 draw and delete, 34, 37/38, 51, 70-73)
 u32 playerModelHook(Ctx& c);                // its hook 13 (player models without a restart)
+void voiceSwapFrame(Ctx& c);                // bod_voice.cpp: a voice change asked for, made at mDoAud_Execute each frame
 
 }  // namespace rt::bod

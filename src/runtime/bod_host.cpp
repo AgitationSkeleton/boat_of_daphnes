@@ -249,6 +249,13 @@ void hostAttach() {
     });
     interpPatch(0x802D02B8, pane);
     interpOverrideAt(0x802D02B8);
+    // mDoAud_Execute (each frame, in the main loop): a change of Link's voice asked for while the game runs (bod_voice.cpp).
+    const u32 audio = interpHookWord([](Ctx& c, u32) -> u32 {
+        voiceSwapFrame(c);
+        return kInterpOriginal;
+    });
+    interpPatch(0x80007224, audio);
+    interpOverrideAt(0x80007224);
 }
 
 void hostRetrace() {
