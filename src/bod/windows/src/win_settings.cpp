@@ -28,6 +28,7 @@
 #include "ship_menu.h"
 #include "cosmetics_editor.h"
 #include "anchor.h"
+#include "discord_rpc.h"
 #include "mods.h"
 #include "gb_browser.h"
 #include "hud_colors.h"
@@ -1467,6 +1468,7 @@ void build_menu() {
     checktracker::BuildMenu(g_menu);
     inputviewer::BuildMenu(g_menu);
     online::BuildMenu(g_menu);
+    discord::BuildMenu(g_menu);
     build_dev_tools();
     g_menu.onQuit = quit;
     g_menu.onRestart = soft_restart;
@@ -2019,6 +2021,7 @@ void frame(void*) {
         gbbrowser::Frame(scale, scale / g_font_scale);
         hud_colors::Frame();
         online::Frame(scale, scale / g_font_scale);
+        discord::Frame();
         if (online::ChatOverlayOpen() != g_text_capture) {
             g_text_capture = online::ChatOverlayOpen();
             PADBlockInput(g_menu_open || g_text_capture);
@@ -2040,6 +2043,7 @@ void frame(void*) {
 }
 
 void save_at_exit() {
+    discord::Shutdown();
     online::Shutdown();
     CVarSave();
 }
@@ -2258,6 +2262,7 @@ extern "C" void bw_settings_open_menu_at(const char* header, const char* page) {
 extern "C" bool bw_settings_menu_is_open(void) { return g_menu_open; }
 
 extern "C" int bw_settings_relaunch(void) {
+    discord::Shutdown(); // the program ends with _Exit, which skips atexit: clear the Discord status here
     return !g_restart.take() || relaunch() ? 0 : 1;
 }
 

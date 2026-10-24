@@ -1983,4 +1983,15 @@ void Shutdown() {
     content::Shutdown();
 }
 
+std::string PlaceName(const std::string& stage, int room) { return place_name(stage, room); }
+
+int PlayersOnline() {
+    if (anchor::GetStatus() != anchor::Status::Connected)
+        return 0;
+    int n = 0;
+    for (const auto& [id, p] : g_players)
+        n += p.online;
+    return n > 0 ? n : 1;
+}
+
 } // namespace online

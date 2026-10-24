@@ -26,13 +26,17 @@ jobs:
       # CMake, Ninja and its LLVM (clang.exe and lld-link.exe go into the package as the bundled compiler).
       - name: Build and package
         shell: pwsh
+        env:
+          # Optional repository variable: the Discord application id for Rich Presence (unset: the CMake default).
+          BOD_DISCORD_APP_ID: ${{ vars.BOD_DISCORD_APP_ID }}
         run: |
           $ErrorActionPreference = 'Stop'
           function Check([string]$what) { if ($LASTEXITCODE) { throw "$what failed ($LASTEXITCODE)" } }
           . ./tools/devenv.ps1
           Write-Host "Visual Studio: $vs"
           clang-cl --version
-          cmake --preset windows-clang
+          $discord = @(); if ($env:BOD_DISCORD_APP_ID) { $discord = @("-DBOD_DISCORD_APP_ID=$($env:BOD_DISCORD_APP_ID)") }
+          cmake --preset windows-clang @discord
           Check 'configure'
           cmake --build build/windows-clang --target tww
           Check 'build'
