@@ -133,6 +133,16 @@ bool g_toggle_menu, g_toggle_fullscreen;  // from the hotkeys, done in the frame
 Uint64 g_first_frame_at;
 bool g_placed;
 float g_font_scale = 1.0f;  // the scale the UI font was drawn at (see load_font)
+float g_auto_font_scale = 1.0f;  // what the display alone asks for (Settings > General > UI Scale at 100 percent)
+int g_ui_pct = 100;         // UI Scale in force, in percent (the font, style and sizes of this frame)
+int g_ui_pct_want = 100;    // what the setting asks for, once it has held still for a moment
+Uint64 g_ui_pct_since;
+struct PendingFont {        // a rebuilt font, taken into use at the start of the next frame
+    bool ready = false;
+    float scale = 1.0f;
+    int pct = 100;
+    ImFont *body = nullptr, *heading = nullptr, *title = nullptr;
+} g_pending_font;
 shipmenu::Menu g_menu;
 bool g_menu_built;
 void sync_live_textures();
@@ -785,6 +795,12 @@ void build_settings() {
         .DefaultFloat(0.85f)
         .Percent()
         .Tooltip("Sets how much of the game shows through the menu.");
+    m.AddWidget(H, "General", 0, "UI Scale: %d %%", WidgetType::CVarSliderInt)
+        .CVar(CVAR_SETTING("UIScale"))
+        .Range(50, 250, 5)
+        .DefaultValue(100)
+        .Tooltip("Sizes the menu, the trackers, the Anchor windows, the input viewer, the dev tools and the notices.\n\n"
+                 "100 % is the automatic size, which follows the window and the display's scale.");
     m.AddWidget(H, "General", 0, "General Settings", WidgetType::SeparatorText);
     m.AddWidget(H, "General", 0, "Pause on Focus Lost", WidgetType::CVarCheckbox)
         .CVar(CVAR_SETTING("PauseOnFocusLost"))
@@ -1483,18 +1499,31 @@ float ui_scale(SDL_Window* w) {
     const float display = w != nullptr ? SDL_GetWindowDisplayScale(w) : 1.0f;
     const float wanted = std::max({1.0f, display, size.y / 900.0f});
     const float fits = std::min(size.x / 660.0f, size.y / 560.0f);
-    return std::clamp(std::min(wanted, fits), 0.75f, g_font_scale);
+    const float autoScale = std::clamp(std::min(wanted, fits), 0.75f, g_auto_font_scale);
+    // Larger than automatic only as far as the menu still fits the window.
+    const float most = std::max(autoScale, fits);
+    return std::clamp(std::min(autoScale * float(g_ui_pct) / 100.0f, most), 0.4f, g_font_scale);
+}
+
+// Settings > General > UI Scale: 50 to 250 percent in steps of 5, 100 = the automatic size.
+int ui_scale_setting() {
+    const int v = CVarGetInteger(CVAR_SETTING("UIScale"), 100);
+    return std::clamp((v + 2) / 5 * 5, 50, 250);
 }
 
 // On the first frame: a clear font drawn at the screen's scale, the default
 // for everything ImGui draws from the next frame on. It has an atlas of its
 // own, handed to Aurora as an ImGui texture (aurora_imgui_add_texture copies
 // it on the render worker), so it can be made inside the frame.
-void load_font(SDL_Window* w) {
+// Called again, with another percentage, when the UI Scale changes: the atlas is made again at the new pixel size
+// (the old one is kept, the frame in progress may still draw with it) and used from the next frame on.
+void load_font(SDL_Window* w, int pct) {
     float scale = std::max(1.0f, SDL_GetWindowDisplayScale(w));
     if (const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(w)))
         scale = std::max(scale, mode->h / 900.0f);
     scale = std::min(scale, 4.0f);
+    g_auto_font_scale = scale;
+    scale = std::clamp(scale * float(pct) / 100.0f, 0.5f, 5.0f);
     static const ImWchar ranges[] = {0x0020, 0x00FF, 0x2010, 0x205E, 0x2190, 0x2193, 0};
     auto* atlas = new ImFontAtlas();  // for the life of the process
     atlas->Flags |= ImFontAtlasFlags_NoMouseCursors;
@@ -1517,7 +1546,9 @@ void load_font(SDL_Window* w) {
             ImFont* body = atlas->AddFontFromFileTTF(p.c_str(), std::round(17.0f * scale), nullptr, ranges);
             ImFont* heading = atlas->AddFontFromFileTTF(p.c_str(), std::round(19.0f * scale), nullptr, ranges);
             ImFont* title = atlas->AddFontFromFileTTF(p.c_str(), std::round(24.0f * scale), nullptr, ranges);
-            shipmenu::SetFonts(body, heading, title);
+            g_pending_font.body = body;
+            g_pending_font.heading = heading;
+            g_pending_font.title = title;
         }
     }
     unsigned char* pixels = nullptr;
@@ -1525,19 +1556,42 @@ void load_font(SDL_Window* w) {
     atlas->GetTexDataAsRGBA32(&pixels, &width, &height);
     if (pixels == nullptr || width <= 0 || height <= 0) {
         std::fprintf(stderr, "[windows] the UI font did not build; keeping ImGui's\n");
+        g_ui_pct = pct;  // not tried again every frame
         return;
     }
     atlas->SetTexID(aurora_imgui_add_texture(static_cast<uint32_t>(width), static_cast<uint32_t>(height), pixels));
     atlas->ClearTexData();
     ImGui::GetIO().FontDefault = font;
-    ImGuiStyle& style = ImGui::GetStyle();
-    ImGui::StyleColorsDark(&style);
-    style.WindowRounding = 4.0f;
-    style.ItemSpacing = ImVec2(8.0f, 10.0f);
-    style.FramePadding = ImVec2(8.0f, 5.0f);
-    style.ScaleAllSizes(scale);
-    g_font_scale = scale;
-    std::fprintf(stderr, "[windows] UI scale %.2f (font atlas %dx%d)\n", scale, width, height);
+    g_pending_font.scale = scale;
+    g_pending_font.pct = pct;
+    g_pending_font.ready = true;
+    std::fprintf(stderr, "[windows] UI scale %d%%: font scale %.2f (font atlas %dx%d)\n", pct, scale, width, height);
+}
+
+// At the start of a frame: takes a rebuilt font into use together with a style made again from the base one (never
+// scaled on top of the last), and starts a rebuild when the UI Scale setting has changed and held still.
+void sync_ui_scale(SDL_Window* w) {
+    if (g_pending_font.ready) {
+        g_pending_font.ready = false;
+        g_font_scale = g_pending_font.scale;
+        g_ui_pct = g_pending_font.pct;
+        if (g_pending_font.body != nullptr)
+            shipmenu::SetFonts(g_pending_font.body, g_pending_font.heading, g_pending_font.title);
+        ImGuiStyle style;
+        ImGui::StyleColorsDark(&style);
+        style.WindowRounding = 4.0f;
+        style.ItemSpacing = ImVec2(8.0f, 10.0f);
+        style.FramePadding = ImVec2(8.0f, 5.0f);
+        style.ScaleAllSizes(g_font_scale);
+        ImGui::GetStyle() = style;
+    }
+    const int want = ui_scale_setting();
+    if (want != g_ui_pct_want) {
+        g_ui_pct_want = want;
+        g_ui_pct_since = SDL_GetTicks();
+    }
+    if (g_ui_pct_want != g_ui_pct && SDL_GetTicks() - g_ui_pct_since > 250)
+        load_font(w, g_ui_pct_want);
 }
 
 // --- replacement textures that follow their settings -------------------------------
@@ -1848,9 +1902,11 @@ void frame(void*) {
             std::fprintf(stderr, "[test] adapter driver dry run: %s\n", adapter_driver::DryRun().c_str());
         online::Launch();
         randomizer::Launch();
-        load_font(w);
+        g_ui_pct_want = ui_scale_setting();
+        load_font(w, g_ui_pct_want);
         return;  // the font is ImGui's default from the next frame
     }
+    sync_ui_scale(w);
     if (!g_placed) {
         g_placed = true;
         place_window(w);
