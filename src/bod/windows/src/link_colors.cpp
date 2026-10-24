@@ -744,7 +744,8 @@ std::map<std::string, uint32_t> parse_spec(const std::string& spec) {
         const size_t eq = item.find('=');
         if (eq == std::string::npos || eq + 7 != item.size())
             continue;
-        out["Link." + item.substr(0, eq)] = static_cast<uint32_t>(std::strtoul(item.c_str() + eq + 1, nullptr, 16));
+        const std::string name = item.substr(0, eq); // "Hero.Tunic" (Link's colors) or "Equip.Ship.Hull" (the gear's)
+        out[name.rfind("Equip.", 0) == 0 ? name : "Link." + name] = static_cast<uint32_t>(std::strtoul(item.c_str() + eq + 1, nullptr, 16));
     }
     return out;
 }
@@ -758,6 +759,17 @@ std::string LocalSpec() {
             std::snprintf(buf, sizeof buf, "=%06x", *rgb & 0xFFFFFFu);
             out += (out.empty() ? "" : ",") + id_of(c.casual, c.name).substr(5) + buf;
         }
+    // The gear's colors (swords, shields, the King of Red Lions, ...): the others' puppets and boats wear them too.
+    for (const EquipPart& part : kEquip) {
+        uint8_t rgba[4];
+        if (!bluewake_cosmetics_get(part.id, rgba))
+            continue;
+        const uint32_t rgb = (uint32_t(rgba[0]) << 16) | (uint32_t(rgba[1]) << 8) | rgba[2];
+        if (rgb == part.base)
+            continue;
+        std::snprintf(buf, sizeof buf, "=%06x", rgb);
+        out += (out.empty() ? "" : ",") + std::string(part.id) + buf;
+    }
     return out;
 }
 
@@ -798,8 +810,33 @@ void SetPlayerColors(int id, const std::string& spec) {
         key.variant = uint32_t(id);
         live.registered.push_back(aurora::texture::register_replacement(key, raw, {.priority = 1}));
     }
+    // The gear (swords, shields, the ship): every equipment texture under this player's variant, in their color for its part or
+    // as the game has it, so a boat or a sword is never the local player's color (the unvaried replacement is the local's).
+    for (const Texture& t : g_equip) {
+        Image img = t.base;
+        for (const EquipPart& part : kEquip) {
+            bool mine = false;
+            for (const char* name : part.textures)
+                mine = mine || t.name == name;
+            const auto it = mine ? colors.find(part.id) : colors.end();
+            if (it != colors.end() && it->second != part.base)
+                exchange(img, nullptr, part.base, it->second, false, part.window, part.min_sat, &t.base);
+        }
+        live.pixels.push_back(std::move(img.bytes));
+        aurora::texture::RawTextureReplacement raw{};
+        raw.bytes = std::span<const uint8_t>(live.pixels.back().data(), live.pixels.back().size());
+        raw.width = t.base.width;
+        raw.height = t.base.height;
+        raw.mipCount = 1;
+        raw.gxFormat = GX_TF_RGBA8_PC;
+        raw.label = t.name;
+        auto key = t.key;
+        key.variant = uint32_t(id);
+        live.registered.push_back(aurora::texture::register_replacement(key, raw, {.priority = 1}));
+    }
     g_override = nullptr;
-    std::fprintf(stderr, "[link_colors] player %d: %zu textures in colors [%s]\n", id, g_textures.size(), spec.c_str());
+    std::fprintf(stderr, "[link_colors] player %d: %zu textures and %zu equipment textures in colors [%s]\n", id, g_textures.size(), g_equip.size(),
+                 spec.c_str());
 }
 
 void MarkDirty() { g_dirty = true; }
