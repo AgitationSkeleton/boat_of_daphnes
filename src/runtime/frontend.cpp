@@ -621,6 +621,7 @@ int runFrontend(int argc, char** argv, bool headless, u64 maxFrames, void (*star
         if (headless) (void)fullscreen;  // (F11 and Alt+Enter: Boat of Daphnes' bw_settings_key)
         // The game's finished frames (waiting a little when there is nothing to draw).
         gxTakeFrames(fresh, interp && gxInterpNewest() ? 0 : 16);
+        gxCopyReadbackPoll();  // (a screen capture's picture, if one is on its way: gx.cpp)
         {  // A hang: no new game frame for 3 s - where every thread is, what the disc is doing (once per hang).
             static double s_lastFrameAt = gxNow();
             static bool s_reported = false;

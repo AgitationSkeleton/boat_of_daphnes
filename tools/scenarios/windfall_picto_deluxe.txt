@@ -1,0 +1,20 @@
+description The Deluxe Picto Box's shutter (A in the viewfinder): the colour screen capture (RGB565) is read back, no assertion
+timeout 150
+save 2-Pictobox
+start load
+wait link
+give deluxe_picto_box
+equip Y deluxe_picto_box
+teleport sea 11 -1985 300 -200800 0
+wait link
+wait 60
+press Y 10
+wait 90
+press A 10
+wait 20
+shot a
+wait 100
+shot b
+wait 200
+shot after
+expect_not Failed assertion

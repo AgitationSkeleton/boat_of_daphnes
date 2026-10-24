@@ -103,6 +103,12 @@ struct GxPeek {
 // The game thread: records the capture in the frame being built. false: nowhere to record it now.
 bool gxCapturePeeks(u64 stream, u64 sequence, const GxPeek* peeks, u32 count);
 
+// Texture copies the CPU reads (the game's screen capture, the Picto Box's photo): while armed, the EFB->RAM texture
+// copies the game thread writes are read back from the GPU into guest memory, and the draw-sync token for them is
+// held until then. Poll (the render thread's loop) delivers the bytes and releases the token.
+void gxCopyReadbackArm(bool on);
+void gxCopyReadbackPoll();
+
 // An eye-space point (the game thread, during the 3D drawing) on the game's 640x480 screen, through
 // the projection and viewport the game has set; false behind the eye.
 bool gxProject(const float eye[3], float& x, float& y);
