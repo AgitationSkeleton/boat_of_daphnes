@@ -1,6 +1,7 @@
 // The Dev Tools windows. See dev_tools.h.
 #include "sea_chart.h"
 #include "dev_windows.h"
+#include "cosmetics_editor.h"
 #include "item_found.h"
 #include "ship_menu.h"
 #include "ship/cvar.h"
@@ -647,6 +648,7 @@ std::string help_text() {
            "  equip <X|Y|Z> <item|none>         an item on a button (give it first)\n"
            "  collect <songs|pearls|shards|swords>   every song, pearl, triforce shard or sword and shield\n"
            "  set <health|maxhealth|rupees|magic|maxmagic> <n>   (health in quarter hearts)\n"
+           "  cosmetic equip:<id>=<rrggbb>[;...]   Cosmetics Editor colours by option id (testing)\n"
            "  items [filter]                    the item names\n"
            "  actors [filter]                   the live actors\n"
            "  peek <address> [size]             guest memory\n"
@@ -801,6 +803,11 @@ std::string RunCommand(const std::string& line) {
         std::snprintf(out, sizeof out, "%s on %s (slot %d)", none ? "nothing" : item_label(item).c_str(), w[1].c_str(), slot);
         std::fprintf(stderr, "[console] equip %s\n", out);
         return out;
+    }
+    if (cmd == "cosmetic") { // testing: cosmetic equip:Trails.SpinAttack=00ff00;Equip.Ship.Hull=ff00ff (the editor's own set_color)
+        if (w.size() < 2) return "usage: cosmetic equip:<option id>=<rrggbb>[;...]";
+        cosmetics::TestApplyPreset(w[1]);
+        return "cosmetics set";
     }
     if (cmd == "collect") {
         const std::string what = w.size() > 1 ? lower(w[1]) : "";

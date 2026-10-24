@@ -1,0 +1,36 @@
+description The Cosmetics Editor's Spin Attack colours: the charge sparkle and the spin's trail take the chosen colours
+# A slash, then B held (procCutTurnCharge -> procCutTurnMove, the charge), then let go (procCutTurn, the spin).
+# Red charge, green spin; the frame dumps show both. The console's `cosmetic` is the editor's own set_color.
+timeout 300
+save 2-Pictobox
+start load
+wait link
+collect swords
+console cosmetic equip:Trails.SpinCharge=ff0000;Trails.SpinAttack=00ff00
+flag set event 0x0B20
+console set maxmagic 32
+magic 32
+health 80
+maxhealth 80
+wait 20
+wait 60
+press B 6
+wait 14
+peek 0x803C5237/1 eventbyte
+peek 0x803C4C1C/1 magic
+peek 0x803CA754/4 player
+hold B
+wait 50
+shot charge1
+wait 30
+shot charge2
+release B
+wait 3
+shot spin1
+wait 4
+shot spin2
+wait 4
+shot spin3
+wait 4
+shot spin4
+wait 30
