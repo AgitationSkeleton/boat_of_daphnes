@@ -35,6 +35,7 @@ FORBIDDEN = ["tww_game.so", "tww_game_rando.so", "tww_game.txt", "tww_game_rando
 DISC_EXT = {".iso", ".gcm", ".ciso", ".rvz", ".wia", ".rel", ".dol", ".arc", ".bdl", ".bti"}
 REQUIRED = ["boat-of-daphnes", "tools/llvm/clang", "tools/llvm/ld.lld", "tools/llvm/LICENSE.TXT", "rando/python/bin/python3",
             "rando/patch_game.py", "rando/generate_seed.py", "rando/bunny_hood.py", "rando/reference-options.json",
+            "rando/check_logic_server.py", "rando/check_flags.json",
             "assets/randomizer/options.json", "assets/fonts/RocknRollOne-Regular.ttf", "BoatOfDaphnes.desktop",
             "boat-of-daphnes.png"]
 
@@ -123,7 +124,8 @@ def main():
         put(os.path.join(runtime, d), out, f"rando/{d}")
     put(os.path.join(runtime, "manifest.json"), out, "rando/manifest.json")
     for f in ("generate_seed.py", "patch_game.py", "describe_options.py", "prepare_extras.py", "variant_sites.py", "link_colors.py",
-              "swift_sail.py", "swift_sail_data.json", "bunny_hood.py", "check_flags.json"):
+              "swift_sail.py", "swift_sail_data.json", "bunny_hood.py", "check_flags.json",
+              "check_logic_server.py"):  # (the Check Tracker's logic helper)
         put(os.path.join("tools", "rando", f), out, f"rando/{f}")
     put("tools/rando/bunny", out, "rando/bunny")
     shutil.rmtree(os.path.join(out, "rando", "bunny", "blender"), ignore_errors=True)

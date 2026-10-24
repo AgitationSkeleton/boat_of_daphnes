@@ -75,7 +75,8 @@ Need "$Runtime\python\python.exe"
 foreach ($d in 'python', 'site-packages', 'wwrando', 'gclib') { Put "$Runtime\$d" "rando\$d" }
 Put "$Runtime\manifest.json" "rando\manifest.json"
 foreach ($f in 'generate_seed.py', 'patch_game.py', 'describe_options.py', 'prepare_extras.py', 'variant_sites.py',
-               'link_colors.py', 'swift_sail.py', 'swift_sail_data.json', 'bunny_hood.py', 'check_flags.json') {
+               'link_colors.py', 'swift_sail.py', 'swift_sail_data.json', 'bunny_hood.py', 'check_flags.json',
+               'check_logic_server.py') {  # (the Check Tracker's logic helper: without it the tracker says the runtime is missing)
     Put "tools\rando\$f" "rando\$f"
 }
 Put "tools\rando\bunny" "rando\bunny"
@@ -108,7 +109,7 @@ $discFiles = Get-ChildItem -Recurse $out -Include *.iso, *.gcm, *.ciso, *.rvz, *
 if ($discFiles) { throw "game files in the release: $($discFiles.FullName -join ', ')" }
 foreach ($f in 'boat-of-daphnes.exe', 'boat-of-daphnes.lib', 'tools\llvm\clang.exe', 'tools\llvm\lld-link.exe',
                'rando\python\python.exe', 'rando\patch_game.py', 'rando\generate_seed.py', 'rando\bunny_hood.py',
-               'assets\randomizer\options.json', 'assets\fonts\RocknRollOne-Regular.ttf') {
+               'rando\check_logic_server.py', 'rando\check_flags.json', 'assets\randomizer\options.json', 'assets\fonts\RocknRollOne-Regular.ttf') {
     Need (Join-Path $out $f)
 }
 $size = (Get-ChildItem -Recurse $out -File | Measure-Object Length -Sum).Sum / 1MB
