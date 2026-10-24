@@ -1,0 +1,11 @@
+description Widescreen at the window's own aspect: Windfall's plaza from the side, the Sea Chart; run with --env/size per aspect
+save 2-Pictobox
+start load
+wait link
+warp sea 11 0
+wait 150
+shot windfall
+time 180 hold
+stick 0 0
+wait 60
+shot windfall_noon

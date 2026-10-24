@@ -70,6 +70,7 @@ const Info kItems[] = {
     {0x3E, "Master Sword (Full Power)", "sword_03.bti"},
     {0x42, "Pirate's Charm", "amulet_00.bti"},
     {0x43, "Hero's Charm", "amulet_01.bti"},
+    {0x44, "Bunny Hood", "@bunnyhood_icon.png"}, // not in the game: the generated picture in assets/bunnyhood
     {0x4C, "Dungeon Map", "dungeon_map.bti"},
     {0x4D, "Compass", "compass.bti"},
     {0x4E, "Big Key", "boss_key.bti"},
@@ -281,11 +282,18 @@ namespace {
 
 // A texture of the archive's member `file`, made once; faded is the dim grey version (for what the
 // player does not have yet). 0 while the disc is not open or when the member is missing.
+ImTextureID png_texture(const std::string& name, bool faded);
+
 ImTextureID member_texture(const std::string& file, bool faded) {
     static std::map<std::string, ImTextureID> cache; // 0: none
     const std::string key = (faded ? "~" : "") + file;
     if (const auto it = cache.find(key); it != cache.end())
         return it->second;
+    if (!file.empty() && file[0] == '@') {
+        const ImTextureID id = png_texture(file.substr(1), faded);
+        cache[key] = id;
+        return id;
+    }
     if (!load_arc())
         return 0; // not cached: again when the disc is open
     ImTextureID id = 0;

@@ -1,0 +1,23 @@
+description The Bunny Hood worn: while the pause screen is up it must not count as the Hero's Charm (no charm mask on Link)
+# mCollect[4] (0x803C4CC0): bit 0 Hero's Charm owned, bit 1 worn, bit 2 hood owned, bit 3 hood worn. The hood alone, worn.
+save 2-Pictobox
+env BLUEWAKE_TEST_BUNNY 1
+start load
+wait link
+poke 0x803C4CC0=0x0C/1
+wait 60
+peek 0x803C4CC0/1 collect_before
+press START
+wait 90
+peek 0x803C4CC0/1 collect_paused
+shot paused
+press R
+wait 90
+peek 0x803C4CC0/1 collect_quest
+shot quest_status
+press START
+wait 90
+peek 0x803C4CC0/1 collect_after
+expect_peek collect_before == 0x0C
+expect_peek collect_after == 0x0C
+expect the pause screen's view of the slot is not the charm's mask

@@ -384,7 +384,8 @@ unsigned apiHostHook(Regs regs, unsigned id, unsigned pc) {
     case 70:
     case 71:
     case 72:
-    case 73: r = bluewake_bunny_hood_hook(c, id); break;
+    case 73:
+    case 74: r = bluewake_bunny_hood_hook(c, id); break;
     default: break;
     }
     s_regs = outer;

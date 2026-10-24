@@ -29,8 +29,9 @@ extern "C" {
 #define BLUEWAKE_BUNNY_HOOK_SPEED 71u     // daPy_lk_c::checkNextMode, after mMaxNormalSpeed is chosen
 #define BLUEWAKE_BUNNY_HOOK_MENU 72u      // dMenu_Collect_c::_move, entry
 #define BLUEWAKE_BUNNY_HOOK_MENU_END 73u  // dMenu_Collect_c::_delete, entry
+#define BLUEWAKE_BUNNY_HOOK_MASK 74u      // daPy_lk_c::checkMaskDraw, entry: the charm's mask on Link
 #define BLUEWAKE_BUNNY_HOOK_FIRST 70u
-#define BLUEWAKE_BUNNY_HOOK_LAST 73u
+#define BLUEWAKE_BUNNY_HOOK_LAST 74u
 
 // The experimental switch (CVar gExperimental.BunnyHood, set by the app): off, the hood does nothing at all, as if the
 // code were not there: the hooks return at once, no item rows or messages are touched, nothing is drawn or sent.
