@@ -8,4 +8,8 @@ namespace setup {
 // player quit. `rememberedDisc`: `disc` holds the disc used before (the build starts at once).
 bool runFirstRun(const std::filesystem::path& exeDir, std::filesystem::path& disc, bool rememberedDisc);
 
+// The same build without a window (--setup --iso FILE): progress lines on standard output, 0 when the game is built (or was),
+// 1 when the build failed, 2 when the disc is not the right one. For servers, scripts and packagers.
+int runFirstRunCli(const std::filesystem::path& exeDir, const std::filesystem::path& disc);
+
 }  // namespace setup
