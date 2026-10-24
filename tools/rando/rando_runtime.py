@@ -433,6 +433,7 @@ def check() -> bool:
 
 
 def main() -> int:
+    global RUNTIME
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--check", action="store_true", help="verify only (no network); exit 1 if the runtime is missing or stale")
     ap.add_argument("--force", action="store_true", help="redo every step")
@@ -440,7 +441,6 @@ def main() -> int:
     ap.add_argument("--runtime", help=f"the folder to make the runtime in (default {RUNTIME})")
     args = ap.parse_args()
     if args.runtime:
-        global RUNTIME
         RUNTIME = Path(args.runtime).resolve()
 
     if args.check:

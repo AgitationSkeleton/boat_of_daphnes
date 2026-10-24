@@ -32,8 +32,8 @@ You need Windows 10 or 11, a GPU with Direct3D 12 or Vulkan, and a CPU with AVX2
 3. Optional: `./install-menu-entry.sh` adds it to your application menu; for the GameCube adapter, copy
    `51-gcadapter.rules` to `/etc/udev/rules.d/` and replug it.
 
-You need a 64-bit Linux with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36, SteamOS 3 and later), a CPU with
-AVX2, a Vulkan driver (Mesa or NVIDIA), and these libraries, which every desktop has: libSDL3's own dependencies
+You need a 64-bit Linux with glibc 2.38 or newer (Ubuntu 24.04, Debian 13, Fedora 39, current Arch and SteamOS), a CPU
+with AVX2, a Vulkan driver (Mesa or NVIDIA), and these libraries, which every desktop has: libSDL3's own dependencies
 (X11 or Wayland, ALSA/PulseAudio/PipeWire), `libssl3`, `libpng16`, `libfreetype6`, `libxml2` (for the bundled linker;
 without it the setup uses your own `clang` and `ld.lld`/`lld` if installed). The disc chooser uses your desktop's file
 dialog (an XDG portal, or `zenity`); `--iso FILE` skips it. Settings, saves, mods and logs live beside the program as on

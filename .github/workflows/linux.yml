@@ -133,7 +133,8 @@ jobs:
           tar=$(ls dist/*.tar.gz)
           tar -tzf "$tar" | head -50
           # nothing made from a disc, nothing of the player's
-          if tar -tzf "$tar" | grep -E '(^|/)(game|Save|saves|logs|Randomizer)/|tww_game|\.(iso|gcm|ciso|rvz|wia|rel|dol)$'; then
+          # (wwrando's own patch files in rando/wwrando/asm are .rel files too: they are its sources, not the game's)
+          if tar -tzf "$tar" | grep -v '/rando/\(wwrando\|gclib\|site-packages\|python\)/' | grep -E '(^|/)(game|Save|saves|logs|Randomizer)/|tww_game|\.(iso|gcm|ciso|rvz|wia|rel|dol)$'; then
             echo "game data in the release"; exit 1
           fi
           mkdir -p check && tar -xzf "$tar" -C check

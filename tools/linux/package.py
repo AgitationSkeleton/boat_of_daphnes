@@ -39,6 +39,11 @@ REQUIRED = ["boat-of-daphnes", "tools/llvm/clang", "tools/llvm/ld.lld", "tools/l
 
 def needed_libs(path):
     """The shared libraries an ELF file asks for (DT_NEEDED), read with readelf or llvm-readobj."""
+    obj = shutil.which("llvm-readobj")
+    if obj:
+        found = re.findall(r"^\s+(\S+\.so\S*)\s*$", subprocess.run([obj, "--needed-libs", path], capture_output=True, text=True).stdout, re.M)
+        if found:
+            return found
     for tool, args in (("readelf", ["-d"]), ("llvm-readelf", ["-d"]), ("objdump", ["-p"])):
         exe = shutil.which(tool)
         if not exe:
@@ -175,6 +180,8 @@ def main():
         def fix(ti):
             ti.uid = ti.gid = 0
             ti.uname = ti.gname = "root"
+            if ti.isfile() and (os.path.basename(ti.name) in ("boat-of-daphnes", "clang", "ld.lld") or ti.name.endswith(".sh")):
+                ti.mode = 0o755  # (whatever the file system the release was made on says)
             return ti
         with gzip.GzipFile(tar, "wb", compresslevel=9) as gz, tarfile.open(fileobj=gz, mode="w") as t:
             t.add(out, arcname=name, filter=fix)
