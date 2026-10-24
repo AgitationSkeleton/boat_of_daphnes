@@ -1,5 +1,5 @@
 description Online: the Sea Chart square sent from interiors and Hide My Location (needs a local Anchor server and server/anchor/test/spy_mate.mjs, see the header)
-# Run: node server/anchor/test/spy_mate.mjs ws://127.0.0.1:8812 wt3chart 600 blue 4     (then the scenario)
+# Run: node server/anchor/test/spy_mate.mjs ws://127.0.0.1:8812 wt3chart 900 blue 4     (then the scenario)
 # The spy logs the game's CHART_UPDATE squares and client state (stage, hidden) and the answers to its teleport requests.
 save 2-Pictobox
 cvar gNetwork.Anchor.Host 127.0.0.1:8812
@@ -7,21 +7,22 @@ cvar gNetwork.Anchor.Room wt3chart
 cvar gNetwork.Anchor.Name Tester
 cvar gNetwork.Anchor.Team blue
 cvar gNetwork.Anchor.Enabled 1
-env BLUEWAKE_TEST_ANCHOR_HIDE 70,110
+env BLUEWAKE_TEST_ANCHOR_HIDE 45,75
+windowed
 timeout 400
 start load
 wait link
 log at_outset_sea
-wait 600
+wait 900
 warp LinkRM 0
 log in_links_house
-wait 600
+wait 900
 warp Fairy01 0
 log in_fairy_fountain
-wait 600
+wait 900
 warp Orichh 0
 log in_windfall_house
-wait 600
+wait 900
 warp sea 11 0
 log at_windfall_sea
 wait 900

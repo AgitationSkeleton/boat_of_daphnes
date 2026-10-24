@@ -1,0 +1,1173 @@
+description Real-time item sync, part 2: the game's own give goes out at once; a teammate's find arriving during an event is held and applied right after (needs a local Anchor server and server/anchor/test/item_mate.mjs)
+# Run: node server/anchor/test/item_mate.mjs ws://127.0.0.1:8812 wt3item3 400 blue 8 0x3D=0x78=0x78=Swift_Sail
+# The mate sends the sail about 380 retraces after the game starts; the event byte (play.mEvtCtrl.mMode) is forced to 1 from
+# retrace +250 to +750, so the find arrives inside an event and must wait for its end.
+save 2-Pictobox
+cvar gNetwork.Anchor.Host 127.0.0.1:8812
+cvar gNetwork.Anchor.Room wt3item3
+cvar gNetwork.Anchor.Name Tester
+cvar gNetwork.Anchor.Team blue
+cvar gNetwork.Anchor.Enabled 1
+windowed
+timeout 300
+start load
+wait link
+wait 100
+log give_hookshot
+give hookshot
+wait 150
+log event_on
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=1/1
+peek 0x803C4C45/1 sail
+wait 2
+poke 0x803C9EA2=0/1
+log event_off
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+peek 0x803C4C45/1 sail
+wait 2
+log done
+expect_not TIMEOUT
