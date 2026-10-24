@@ -121,7 +121,7 @@ set(BOD_UI_SOURCES
     anchor_client.cpp anchor_content.cpp item_found.cpp notifications.cpp item_tracker.cpp mods.cpp rarc.cpp
     hud_colors.cpp randomizer_menu.cpp rando_pack.cpp rando_saves.cpp rando_flow.cpp fs_art.cpp fs_blo.cpp
     fs_font.cpp anchor_carry.cpp check_tracker.cpp input_viewer.cpp player_parts.cpp content_validate.cpp
-    voice_bank.cpp gb_browser.cpp)
+    voice_bank.cpp gb_browser.cpp discord_rpc.cpp)
 # What differs per operating system (platform/bod_platform.h): the platform layer, the crash reporter, the GameCube adapter.
 if (WIN32)
     list(APPEND BOD_UI_SOURCES win_crash.cpp adapter_driver.cpp platform/platform_win32.cpp)
@@ -138,8 +138,12 @@ list(TRANSFORM BOD_HOST_SOURCES PREPEND ${BOD_DIR}/runtime/host/src/)
 if (WIN32)
     set(BOD_COMPAT_SOURCES ${BOD_DIR}/windows/compat/bw_posix_compat.c)
 endif ()
+# Discord Rich Presence's application id (the Boat of Daphnes application's public client id). Empty: the feature is compiled
+# but inactive. CI passes the repository variable BOD_DISCORD_APP_ID when it is set.
+set(BOD_DISCORD_APP_ID "1558728645848207381" CACHE STRING "Discord application id for Rich Presence (empty: inactive)")
 add_library(bod_ui STATIC ${BOD_UI_SOURCES} ${BOD_COMPAT_SOURCES} ${BOD_HOST_SOURCES} ${BOD_DIR}/runtime/host/src/ship/cvar.cpp
     ${BOD_DIR}/shim/bod_stubs.c ${BOD_DIR}/shim/rando_bridge.c ${BOD_DIR}/shim/guest_coro_sync.c ${CMAKE_CURRENT_BINARY_DIR}/emibios_data.c)
+target_compile_definitions(bod_ui PRIVATE BOD_DISCORD_APP_ID="${BOD_DISCORD_APP_ID}")
 target_include_directories(bod_ui PUBLIC ${BOD_DIR}/runtime/host/src ${BOD_DIR}/include ${BOD_DIR}/windows/src)
 if (WIN32)
     # (the POSIX headers a Windows build lacks: unistd.h, pthread.h, dirent.h ...)
