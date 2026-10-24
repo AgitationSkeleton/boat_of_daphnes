@@ -112,7 +112,7 @@ enum {
     SHADOW_CONTROL = 0x803C4C08u + 0x5D1Cu + 0x250u, // g_dComIfG_gameInfo.drawlist.mShadowControl
     SIMPLE_TEX = 0x803E229Cu,                // dDlst_shadowControl_c::mSimpleTexObj
     SHADOW_CASTER_SIZE = 700,                // daPy_HIO_basic_c0::m's shadow size (his drawShadow)
-    PUPPET_FACE_MAX = 12,
+    PUPPET_FACE_MAX = 32,
 
     // Things he wears and holds (daPy_lk_c, GZLE01).
     PLAYER_NO_RESET_FLG0 = 0x29Cu,
