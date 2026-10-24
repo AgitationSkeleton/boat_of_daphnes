@@ -184,7 +184,7 @@ static void release_all(CPUState* cpu) {
 // save is not read or written. The name's colour stays the plain one.
 static GuestCoro* g_coro_name;
 static u32 g_name_buf, g_name_msg; // set by the pass, used by the fiber
-static u32 g_name_key;             // the last (buffer, message) tried: not tried again until the cursor moves
+static u32 g_name_key;             // the last (buffer, message) tried that left the text empty: not tried again until it fills or the cursor moves
 
 static void name_pass(CPUState* cpu, u32 self, unsigned zoom) {
     g_name_buf = 0u;
@@ -210,8 +210,12 @@ static void name_pass(CPUState* cpu, u32 self, unsigned zoom) {
     if (gx < -3 || gx > 3 || gy < -3 || gy > 3 || grid < 0 || grid >= SQUARES)
         return;
     const u32 text = mem_read32(cpu, self + FMAP_TXT_NAME + 4u * (u32)buf);
-    if (!guest_ptr(text) || mem_read8(cpu, text) != 0u)
-        return; // there is a name already
+    if (!guest_ptr(text))
+        return;
+    if (mem_read8(cpu, text) != 0u) {
+        g_name_key = 0u; // there is a name: when the game empties the text again (the chart opened again, a cursor move) it is put in again
+        return;
+    }
     const u32 msg = MSG_ISLAND_FIRST + (u32)grid;
     const u32 key = text ^ (msg << 24) ^ 1u;
     if (key == g_name_key)

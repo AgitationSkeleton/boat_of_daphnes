@@ -1,0 +1,24 @@
+description BR-0048: Reveal Sea Chart on, warp-mode chart (as the Ballad of Gales opens it), opened twice on the same square: the bottom banner must switch to the island name each time
+save 2-Pictobox
+start load
+wait link
+reveal 1
+poke 0x803CA7F9=1/1
+wait 300
+shot a1
+wait 60
+shot a2
+wait 60
+shot a3
+press B
+wait 240
+poke 0x803CA7F9=1/1
+wait 300
+shot b1
+wait 60
+shot b2
+wait 60
+shot b3
+wait 60
+shot b4
+expect (?s)put in.*put in
