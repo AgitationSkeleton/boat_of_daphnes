@@ -64,7 +64,7 @@ def run(command: list, env: dict, what: str) -> None:
 def replace_folder(made: Path, target: Path) -> None:
     shutil.rmtree(target, ignore_errors=True)
     target.parent.mkdir(parents=True, exist_ok=True)
-    os.replace(made, target)
+    shutil.move(str(made), str(target))  # (another drive: os.replace would fail)
 
 
 def step_swift_sail(iso: str, out: Path, env: dict, args) -> str:

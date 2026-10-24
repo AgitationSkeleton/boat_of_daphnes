@@ -27,6 +27,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import sys
 import time
 import traceback
@@ -289,7 +290,7 @@ def main(argv=None) -> int:
                 made = out / f"WW Random {rando.seed}.iso"
                 dst = Path(args.iso_out).resolve()
                 dst.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(made, dst)
+                shutil.move(str(made), str(dst))  # (the work folder may be on another drive: os.replace would fail)
                 print(json.dumps({"ok": True, "seed": rando.seed, "permalink": rando.permalink, "iso": str(dst),
                                   "out": str(out), "seconds": round(time.perf_counter() - t0, 1)}), flush=True)
                 return 0
@@ -307,7 +308,6 @@ def main(argv=None) -> int:
         gs.fail(gs.EXIT_GENERATION, "patching failed: " + f"{type(e).__name__}: {e}".strip().splitlines()[0], seed=seed)
 
     # a clean output: drop the files of an earlier run (only the folders and manifest this script writes)
-    import shutil
     for sub in ("files", "sys"):
         shutil.rmtree(out / sub, ignore_errors=True)
     if args.files != "none":
