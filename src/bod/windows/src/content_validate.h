@@ -24,10 +24,23 @@ constexpr size_t kMaxNodes = 64;
 constexpr size_t kMaxStrings = 64u * 1024;
 constexpr size_t kMaxVoiceInit = 2u * 1024 * 1024; // JaiInit.aaf
 constexpr size_t kMaxVoiceWave = 8u * 1024 * 1024; // a .aw wave bank
+// The colour pack of a player model (the server's limits too): metadata.txt and the PNG colour masks.
+constexpr size_t kMaxMetadata = 64u * 1024;
+constexpr size_t kMaxMaskFile = 2u * 1024 * 1024;  // one mask PNG
+constexpr uint32_t kMaxMaskSide = 2048;
+constexpr size_t kMaxMasks = 200;                  // in one manifest
+constexpr size_t kMaxMasksTotal = 16u * 1024 * 1024;
 
 // One file a manifest lists.
 struct File {
     std::string path, role, sha256;
+    size_t size = 0;
+};
+
+// One file of a manifest's colour pack: a mask's path is "color_masks/<name>.png" (or "color_masks/mouths/<name>.png"),
+// lower case, as the model's own files are named.
+struct ColorFile {
+    std::string path, sha256;
     size_t size = 0;
 };
 
@@ -40,6 +53,10 @@ struct Manifest {
     bool link = true;          // the body comes from the "model" file
     std::string equipment;     // "", "model" (the model file's) or "equipment" (the equipment file's)
     bool voice = false;
+    // The colour pack, which only newer clients send (older ones ignore it, and it is not in `files`: they limit those to 64
+    // entries). Tolerant: a malformed section is dropped, never an error, so the body and voice still arrive.
+    ColorFile metadata;               // path empty (size 0): none
+    std::vector<ColorFile> masks;
 };
 
 // The paths a file may have in a pack (the only ones ever downloaded or used) and the role each goes with.
@@ -60,6 +77,15 @@ bool ValidateRarc(const std::vector<uint8_t>& arc, std::string* error);
 // A J3D file ("J3D2bdl3", ...): the magic for the extension, the size, and chunks that fill it exactly.
 bool ValidateJ3d(const std::vector<uint8_t>& file, const std::string& ext, std::string* error);
 bool ValidateBti(const std::vector<uint8_t>& file, std::string* error);
+
+// The colour pack: metadata.txt (valid UTF-8 text, no control characters) and a mask PNG (chunks and their checksums
+// checked, only the chunks a mask needs, the deflate stream decoding to the size the header implies; sides up to 2048).
+// SanitizeMask is for the sender: it drops every chunk a mask must not carry (text, colour profiles, anything unknown)
+// and returns false when the file is no PNG it can read.
+bool MaskPathOk(const std::string& path);
+bool ValidateMetadata(const std::vector<uint8_t>& file, std::string* error);
+bool ValidateMask(const std::vector<uint8_t>& file, std::string* error);
+bool SanitizeMask(std::vector<uint8_t>& file, std::string* error);
 
 // The body of a validated Link.arc: cl.bdl (42 joints are checked by the game side).
 bool ExtractBody(const std::vector<uint8_t>& arc, std::vector<uint8_t>& bdl, std::string* error);

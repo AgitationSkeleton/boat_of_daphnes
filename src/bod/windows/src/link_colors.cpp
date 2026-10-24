@@ -733,8 +733,10 @@ struct PlayerLive {
     std::string spec;
     std::deque<std::vector<uint8_t>> pixels;
     std::vector<aurora::texture::ReplacementRegistration> registered;
+    std::shared_ptr<const model_colors::Set> model; // kept while registrations view its pixels
 };
 std::map<int, PlayerLive> g_players;
+std::map<int, std::shared_ptr<const model_colors::Set>> g_player_models;
 
 std::map<std::string, uint32_t> parse_spec(const std::string& spec) {
     std::map<std::string, uint32_t> out;
@@ -759,6 +761,20 @@ std::string LocalSpec() {
             std::snprintf(buf, sizeof buf, "=%06x", *rgb & 0xFFFFFFu);
             out += (out.empty() ? "" : ",") + id_of(c.casual, c.name).substr(5) + buf;
         }
+    // The colors of a player model in use ("M.Hero.Tunic=5ab24a": the model's own color names, spaces out); the puppet of a
+    // player with the same model takes them (SetPlayerModel).
+    if (g_model != nullptr) {
+        const std::string prefix = "Link." + g_model->id_name + ".";
+        for (const auto& [id, rgb] : g_model_chosen) {
+            if (id.rfind(prefix, 0) != 0)
+                continue;
+            const std::string tail = id.substr(prefix.size());
+            if (tail.find_first_of(",=") != std::string::npos)
+                continue;
+            std::snprintf(buf, sizeof buf, "=%06x", rgb & 0xFFFFFFu);
+            out += (out.empty() ? "" : ",") + ("M." + tail) + buf;
+        }
+    }
     // The gear's colors (swords, shields, the King of Red Lions, ...): the others' puppets and boats wear them too.
     for (const EquipPart& part : kEquip) {
         uint8_t rgba[4];
@@ -782,8 +798,17 @@ void ForgetPlayer(int id) {
     g_players.erase(it);
 }
 
+void SetPlayerModel(int id, std::shared_ptr<const model_colors::Set> set) {
+    if (set)
+        g_player_models[id] = std::move(set);
+    else
+        g_player_models.erase(id);
+    ForgetPlayer(id); // rebuilt with the model at the next SetPlayerColors
+}
+
 void SetPlayerColors(int id, const std::string& spec) {
-    if (id <= 0 || !Load())
+    const auto model = g_player_models.find(id);
+    if (id <= 0 || (!Load() && model == g_player_models.end()))
         return;
     const auto have = g_players.find(id);
     if (have != g_players.end() && have->second.spec == spec)
@@ -835,6 +860,47 @@ void SetPlayerColors(int id, const std::string& spec) {
         live.registered.push_back(aurora::texture::register_replacement(key, raw, {.priority = 1}));
     }
     g_override = nullptr;
+    // The player's own model: every one of its textures, in the model colors the spec holds (unchanged ones too, so that a
+    // puppet is never drawn with the local player's recolor of the same texture). Above the vanilla replacements.
+    if (model != g_player_models.end()) {
+        live.model = model->second;
+        const model_colors::Set& set = *live.model;
+        const auto result = model_colors::Recolor(set, [&](bool casual, const std::string& color) -> std::optional<uint32_t> {
+            const std::string full = model_colors::ColorId(set, casual, color);
+            const auto it = colors.find("Link.M." + full.substr(std::string("Link.").size() + set.id_name.size() + 1));
+            if (it == colors.end())
+                return std::nullopt;
+            return it->second;
+        });
+        for (const model_colors::Texture& t : set.textures) {
+            const model_colors::Image* image = &t.rgba;
+            for (const model_colors::Recolored& r : result)
+                if (r.texture == t.name)
+                    image = &r.image;
+            // An unchanged texture is viewed in the model's own data (kept by live.model); a recolored one has its pixels held here.
+            const std::vector<uint8_t>* pixels = &image->bytes;
+            if (image != &t.rgba) {
+                live.pixels.push_back(image->bytes);
+                pixels = &live.pixels.back();
+            }
+            for (const std::string& k : t.keys) {
+                const auto key = parse_key(k);
+                if (!key)
+                    continue;
+                aurora::texture::RawTextureReplacement raw{};
+                raw.bytes = std::span<const uint8_t>(pixels->data(), pixels->size());
+                raw.width = image->width;
+                raw.height = image->height;
+                raw.mipCount = 1;
+                raw.gxFormat = GX_TF_RGBA8_PC;
+                raw.label = t.name;
+                auto variant_key = *key;
+                variant_key.variant = uint32_t(id);
+                live.registered.push_back(aurora::texture::register_replacement(variant_key, raw, {.priority = 2}));
+            }
+        }
+        std::fprintf(stderr, "[link_colors] player %d: the model %s, %zu textures, %zu recolored\n", id, set.name.c_str(), set.textures.size(), result.size());
+    }
     std::fprintf(stderr, "[link_colors] player %d: %zu textures and %zu equipment textures in colors [%s]\n", id, g_textures.size(), g_equip.size(),
                  spec.c_str());
 }
