@@ -1884,8 +1884,8 @@ static DataSlot g_ds[DS_SLOTS];
 // over a block of guest memory, made by the game's own constructor (a child of the root heap only in its tree: the block is no
 // part of the root's range), from which the same solid heaps are made as before (mDoExt_createSolidHeapToCurrent with the pool
 // as the parent). Everything a puppet allocates in such a heap, its models, packets and matrix buffers, is then in the pool.
-//   FAST: memory inside the module's own MEM1 array, which the recompiled code reaches with its inline fast path: the 2.5 MB
-//         at the top of the dynamic REL window (0x81D00000, which the game does not use: it has 24 MB) of a 32 MB module, or
+//   FAST: memory inside the module's own MEM1 array, which the recompiled code reaches with its inline fast path: the 4 MB
+//         at the top of the 32 MB guest window (0x81C00000, past the game's 24 MB and the host's own objects) of a 32 MB module, or
 //         everything above 0x82000000 (up to 32 MB) of a 64 MB one (puppet_fast_range).
 //   MEM2: the Wii's extended RAM (0x90000000, cpu->exram, 64 MB), which the module reaches through its slow path (a call per
 //         access: a puppet there costs about twice the game-thread time), so it takes only what the others cannot hold.
@@ -1910,8 +1910,8 @@ enum {
 // Where the fast pool is for a MEM1 array of this size; false when there is none.
 bool bluewake_puppet_fast_range(u32 ram_size, u32* base, u32* bytes) {
     if (ram_size == 0x02000000u) {
-        *base = 0x81D00000u;
-        *bytes = 0x00280000u; // up to the linked module 1 at 0x81F80000
+        *base = 0x81C00000u; // the top 4 MB of the 32 MB window: past the game's 24 MB and the host's own objects (runtime.h)
+        *bytes = 0x00400000u;
         return true;
     }
     if (ram_size > 0x02000000u) {

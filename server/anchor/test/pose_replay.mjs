@@ -13,6 +13,7 @@
 //         MATE_NAME (default "Mate"), MATE_DX / MATE_DZ (offset from Link, default 150 / 0), VOICE_PITCH,
 //         MATE_OFFLINE_AFTER (seconds: the mate disconnects then, for the leave scenarios),
 //         MATE_LEGACY=1 (publish as an older client does: a plain manifest with only Link.arc),
+//         MATE_WAVE=1 (the replayed pose's left arm joints swing between two angles every 1.5 s: shows the limbs follow the stream),
 //         MATE_GEAR=1 (the replayed pose has the Hero's Sword on the back and the Hero's Shield on the arm, as a player
 //         with them equipped sends them: the recorded Link may have none, and then the puppets' equipment models would not show).
 import { createHash } from 'node:crypto';
@@ -143,6 +144,17 @@ setInterval(() => {
   const pose = Buffer.from(f.pose, 'base64');
   const delta = [0, 1, 2].map((i) => f.pos[i] - first.pos[i] + latest.pos[i] + (i === 0 ? dx : i === 2 ? dz : 0) - f.pos[i]);
   for (let i = 0; i < 3; i++) pose.writeFloatLE(pose.readFloatLE(6 + 4 * i) + delta[i], 6 + 4 * i); // base position, wire byte 6
+  if (process.env.MATE_WAVE) { // the left arm's joints swing 90 degrees about a local axis every 1.5 s: the limb animation proof
+    const on = Math.floor(Date.now() / 750) % 2 === 0;
+    const h = Math.SQRT1_2, qr = on ? [0, 0, h, h] : [0, 0, 0, 1];
+    for (const j of [6, 7, 8]) {
+      const o = 32 + 14 * j; // (no scaled joints in the idle poses)
+      const a = [0, 1, 2, 3].map((k) => pose.readInt16LE(o + 2 * k) / 32767);
+      const r = [a[3] * qr[0] + a[0] * qr[3] + a[1] * qr[2] - a[2] * qr[1], a[3] * qr[1] - a[0] * qr[2] + a[1] * qr[3] + a[2] * qr[0],
+                 a[3] * qr[2] + a[0] * qr[1] - a[1] * qr[0] + a[2] * qr[3], a[3] * qr[3] - a[0] * qr[0] - a[1] * qr[1] - a[2] * qr[2]];
+      for (let k = 0; k < 4; k++) pose.writeInt16LE(Math.round(r[k] * 32767), o + 2 * k);
+    }
+  }
   const sent = process.env.MATE_GEAR ? withGear(pose) : pose;
   ws.send(JSON.stringify({ type: 'PLAYER_UPDATE', stage: f.stage, room: f.room, pos: [f.pos[0] + delta[0], f.pos[1] + delta[1], f.pos[2] + delta[2]],
     angle: f.angle, pose: sent.toString('base64') }));

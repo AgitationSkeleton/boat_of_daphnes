@@ -164,7 +164,7 @@ CPUState s_cpu{};
 CPUState* cpu() {
     if (!s_cpu.ram) {
         s_cpu.ram = bod::guestRam();
-        s_cpu.ram_size = GC_MAIN_RAM_SIZE;
+        s_cpu.ram_size = 0x02000000u;  // the 32 MB window (ctx.h kHostMemSize): the game's 24 MB, then the puppets' fast pool
     }
     return &s_cpu;
 }
