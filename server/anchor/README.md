@@ -5,7 +5,7 @@ Worker:
 
 - **Rooms:** each room is a Durable Object (`src/room.js`), using WebSocket hibernation, so an idle room costs nothing.
 - **Room list:** a Lobby Durable Object (`src/lobby.js`) lists the rooms whose owners ask to be listed.
-- **Custom player content:** models and voices players share are kept by hash in a KV namespace (`src/content.js`).
+- **Custom player content:** models and voices players share are kept by hash in a KV namespace (`src/content.js`). A manifest may also carry a colour pack (the model's `metadata.txt` and its colour mask PNGs, uploaded as `kind=metadata` / `kind=mask` and listed in a `colors` section beside `files`): older clients ignore it, and the server checks it only when it is present (`test/colors.mjs` runs an old client's flow and the new one against the same server).
 - **Protocol:** see `PROTOCOL.md`.
 
 The game connects to the project's server by default; Settings > Network > Anchor > Host points it at another one.

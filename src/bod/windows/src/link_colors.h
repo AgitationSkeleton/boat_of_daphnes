@@ -9,7 +9,7 @@
 #pragma once
 
 #include <cstdint>
-#include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -44,6 +44,11 @@ std::string LocalSpec();
 // Another player's puppet (variant = their player id): every recolorable texture in the colors of `spec` (LocalSpec's
 // format), or the game's own for "". Cheap when the spec is unchanged.
 void SetPlayerColors(int id, const std::string& spec);
+// Another player's puppet wears a player model of its own (its Link.arc, metadata and masks, received through the content
+// server and built by the content worker): the model's textures are then recolored in the model colors of the player's spec
+// ("M.Hero.Tunic=5ab24a": the entries LocalSpec writes while a model is in use) and registered under the player's variant,
+// as the vanilla ones are. nullptr: the puppet has no model of its own again. Takes effect at the next SetPlayerColors.
+void SetPlayerModel(int id, std::shared_ptr<const model_colors::Set> set);
 void ForgetPlayer(int id);
 
 } // namespace link_colors

@@ -99,3 +99,33 @@ while `allowCarrying` is 0 (`CARRY_END` always goes through).
    damaged, except that in a room with PvP `on` a thrown player takes a small hit (`hurt` 1).
 5. Either end ends the hold when the stage or room changes, an event or a cutscene starts, or the other player goes
    offline (`area`, `event`, `left`). The carried player can always press B: `CARRY_END` with `breakfree`.
+
+## Custom content and the colour pack (HTTP, `/content/<sha256>`)
+
+Models and voices go through the server's content store, not the WebSocket: `PUT /content/<sha256>?kind=<kind>` (the server
+hashes the body, refuses it unless it is that hash, and checks it by kind), `GET` and `HEAD` by hash. Kinds: `manifest`, `archive`
+(the default), `aaf`, `wave`, and since the colour pack `metadata` and `mask`. A player advertises the manifest's hash in their
+client state (`content`) and the colours they chose for the model in `linkColors`.
+
+A manifest is `{ v: 1, name, files: [{ path, role, sha256, size }], parts: { link, equipment, voice }, colors? }`. `colors` is
+optional and only newer clients write it: `{ metadata: { sha256, size }, masks: [{ path: "color_masks/hero_hair.png", sha256, size }] }`,
+the model's `metadata.txt` (UTF-8 text up to 64 KB, uploaded as `kind=metadata`) and its colour masks (PNG files up to 2 MB and 2048
+by 2048, `kind=mask`, at most 200 listed, 16 MB in all; paths are lower case, `color_masks/` or `color_masks/mouths/`). They are not
+listed in `files`, which clients before the colour pack limit to 64 entries, and those clients ignore the `colors` section. The
+server checks it only when it is there. A mask is checked to the byte: chunk structure and checksums, only the chunks a mask needs
+(`IHDR`, `PLTE`, `tRNS`, `IDAT`, `IEND` and a few harmless ones: `gAMA`, `cHRM`, `sRGB`, `sBIT`, `pHYs`, `bKGD`, `tIME`; anything
+else, text and profile chunks included, is refused, so a sender strips them first), nothing after `IEND`, and the deflate stream
+inflated, bounded, to exactly the size the header implies. Uploads of these two kinds have their own hourly budget, apart from the
+archives'. `linkColors` is a list `Hero.Tunic=5ab24a,...` of the game's own Link colours; the colours of a player model follow in
+the same list as `M.<Hero|Casual>.<colour name without spaces>=rrggbb`, which other clients read against the metadata they
+downloaded (older clients read them as colours that no texture has).
+
+## Pose extension chunks (binary `pose`)
+
+After the joints, the sword's and shield's places and the `proc`, a pose carries blocks of tag (u8), length (u16 LE) and contents;
+a reader skips tags it does not know. Tag 1 expression (the face textures), 2 attachments, 3 time, 4 lines, 5 sail, and since the
+eyes and bombs: 6 eyes (count, then per eye material: material index, texture matrix slot, the pupil's scroll x and y as s16 in
+1/8192 of a texture; a pose without it shows the pupils straight ahead) and 7 bombs (count, then per bomb: id, kind 0 bomb or 1
+bomb flower, state 0 held, 1 free, 2 exploded, frames to the explosion s16, the world place as 3 floats and the place in the hands,
+relative to the base, as 3 x s16 in 1/8 units; a bomb that has gone off stays listed for about two seconds). No server change: the
+server relays the pose as it is.

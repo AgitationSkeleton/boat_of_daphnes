@@ -6,6 +6,7 @@
 #include "anchor_content.h"
 
 #include "content_validate.h"
+#include "model_colors.h"
 #include "mods.h"
 #include "rarc.h"
 #include "voice_bank.h"
@@ -387,6 +388,62 @@ void publish(std::string base, std::string model) {
                 list.push_back(picojson::value(o));
                 ++it;
             }
+            // The colours of the body's model: its metadata.txt and colour masks, as a section of their own beside "files"
+            // (older clients read "files" alone, and limit it to 64 entries; they never see this). Optional all through: a
+            // server that does not know the kinds (an older one) refuses the first upload, and the pack goes without.
+            picojson::object colors;
+            if (ok && parts.link) {
+                model_colors::Files mf;
+                if (mods::ActiveModelFiles(mf) && mf.name == name && !mf.metadata.empty()) {
+                    std::vector<uint8_t> meta(mf.metadata.begin(), mf.metadata.end());
+                    std::string why;
+                    picojson::object section;
+                    picojson::array masks;
+                    size_t bytes = 0;
+                    bool good = cv::ValidateMetadata(meta, &why);
+                    if (!good)
+                        std::fprintf(stderr, "[content] %s: metadata.txt is not shared: %s\n", name.c_str(), why.c_str());
+                    if (good) {
+                        const std::string h = Sha256Hex(meta.data(), meta.size());
+                        good = upload(h, meta, "metadata", "metadata.txt");
+                        picojson::object e;
+                        e["sha256"] = picojson::value(h);
+                        e["size"] = picojson::value(static_cast<int64_t>(meta.size()));
+                        section["metadata"] = picojson::value(e);
+                    }
+                    int skipped = 0;
+                    for (auto& [path, png] : mf.masks) {
+                        if (!good || masks.size() >= cv::kMaxMasks)
+                            break;
+                        std::vector<uint8_t> bytes_png = png;
+                        std::string why2;
+                        if (!cv::MaskPathOk(path) || !cv::SanitizeMask(bytes_png, &why2) || !cv::ValidateMask(bytes_png, &why2) ||
+                            bytes + bytes_png.size() > cv::kMaxMasksTotal) {
+                            ++skipped;
+                            std::fprintf(stderr, "[content] %s: mask %s is not shared (%s)\n", name.c_str(), path.c_str(), why2.c_str());
+                            continue;
+                        }
+                        const std::string h = Sha256Hex(bytes_png.data(), bytes_png.size());
+                        if (!upload(h, bytes_png, "mask", path)) {
+                            good = false;
+                            break;
+                        }
+                        bytes += bytes_png.size();
+                        picojson::object e;
+                        e["path"] = picojson::value(path);
+                        e["sha256"] = picojson::value(h);
+                        e["size"] = picojson::value(static_cast<int64_t>(bytes_png.size()));
+                        masks.push_back(picojson::value(e));
+                    }
+                    if (good && !masks.empty()) {
+                        section["masks"] = picojson::value(masks);
+                        colors = std::move(section);
+                        std::fprintf(stderr, "[content] %s: colour pack of %zu masks (%zu bytes) and metadata.txt, %d masks left out\n", name.c_str(),
+                                     masks.size(), bytes, skipped);
+                    } else if (!good)
+                        std::fprintf(stderr, "[content] %s: the colour pack is not shared (the server refused a part)\n", name.c_str());
+                }
+            }
             if (ok && !list.empty()) {
                 picojson::object p;
                 p["link"] = picojson::value(parts.link);
@@ -397,7 +454,11 @@ void publish(std::string base, std::string model) {
                 m["name"] = picojson::value(name.substr(0, 60));
                 m["files"] = picojson::value(list);
                 m["parts"] = picojson::value(p);
-                const std::string text = picojson::value(m).serialize();
+                if (!colors.empty())
+                    m["colors"] = picojson::value(colors);
+                std::string text = picojson::value(m).serialize();
+                if (text.size() > kMaxManifest && m.erase("colors")) // the masks' list does not fit: the pack goes without
+                    text = picojson::value(m).serialize();
                 const std::vector<uint8_t> manifest(text.begin(), text.end());
                 const std::string manifest_hash = Sha256Hex(manifest.data(), manifest.size());
                 if (manifest.size() <= kMaxManifest && upload(manifest_hash, manifest, "manifest", "manifest")) {
@@ -486,6 +547,40 @@ void fetch_peer(std::string base, int id, std::string hash, unsigned long long e
                         any = true;
                     }
                 }
+            }
+            if (ready.has_body && m.metadata.size != 0) {
+                // The model's colours (a newer client's manifest): metadata.txt and the masks, each checked as it arrives; a
+                // part that fails is left out, and the puppet keeps the colours it has.
+                const auto* arc = archive("Link.arc");
+                model_colors::Files files;
+                files.name = m.name;
+                std::vector<uint8_t> meta;
+                std::string r1;
+                if (arc != nullptr && fetch_blob(base, m.metadata.sha256, m.metadata.size, meta, epoch) && cv::ValidateMetadata(meta, &r1)) {
+                    files.metadata.assign(meta.begin(), meta.end());
+                    files.link_arc = *arc;
+                    for (const auto& f : m.masks) {
+                        std::vector<uint8_t> png;
+                        std::string r2;
+                        if (!fetch_blob(base, f.sha256, f.size, png, epoch))
+                            continue;
+                        if (!cv::ValidateMask(png, &r2)) {
+                            std::fprintf(stderr, "[content] mask %s from player %d is refused: %s\n", f.path.c_str(), id, r2.c_str());
+                            continue;
+                        }
+                        files.masks[f.path] = std::move(png);
+                    }
+                    auto set = std::make_shared<model_colors::Set>();
+                    std::string r3;
+                    if (still_on(epoch) && model_colors::Build(files, *set, &r3)) {
+                        std::fprintf(stderr, "[content] player %d's model colours: %zu Hero's and %zu Outset colors, %zu textures, %zu mask regions from %zu mask files\n", id,
+                                     set->outfits[0].colors.size(), set->outfits[1].colors.size(), set->textures.size(), set->masks.size(), files.masks.size());
+                        if (!set->outfits[0].colors.empty() || !set->outfits[1].colors.empty())
+                            ready.colors = std::move(set);
+                    } else
+                        std::fprintf(stderr, "[content] player %d's model colours could not be built: %s\n", id, r3.c_str());
+                } else
+                    std::fprintf(stderr, "[content] player %d's metadata.txt could not be used (%s)\n", id, r1.c_str());
             }
             if (!equip_from.empty()) {
                 const auto* arc = archive(equip_from == "model" ? "Link.arc" : "equipment/Link.arc");

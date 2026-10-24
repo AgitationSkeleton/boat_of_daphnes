@@ -21,6 +21,9 @@
 namespace voice_bank {
 struct Bank;
 }
+namespace model_colors {
+struct Set;
+}
 
 namespace content {
 
@@ -34,6 +37,9 @@ struct Ready {
     std::vector<uint8_t> hands, hair;         // hands.bdl and katsura.bdl of the body's archive (with a custom body)
     bool has_equipment = false;               // equipment is a mod's
     std::map<std::string, std::vector<uint8_t>> equipment; // swgripa.bdl, swa.bdl, sha.bdl, ... (those the pack has)
+    // The body's colour data (its metadata.txt and colour masks, which the manifest's optional "colors" section lists), built
+    // into the colours the model can take: null when the pack has none (an older client's, or a model without masks).
+    std::shared_ptr<const model_colors::Set> colors;
     std::string voice;                        // "" for the game's voice; else an id (hash of the voice files)
     // The voices decoded to PCM at the output rate (voice_bank.h), shared by the players who have the same voice; null when
     // the bank could not be decoded or the memory for banks (32 MB) is full: the puppet then keeps the local voice bank.

@@ -54,6 +54,25 @@ enum {
     HOLD_MAX_MS = 180000,
     THROW_MIN_SPEED = 2,       // a release with this speed or more is a throw
     FLIGHT_MAX = 120,
+    // Against the stage (the game's own ground check, dBgS_ObjGndChk_Func, run from the draw fiber): an arc is walked in steps of this
+    // many units, each point's ground read from that far above it; a rise of more than STEP_RISE above the point is a wall or a pillar
+    // the arc stops before.
+    FN_NEW = 0x802B0C38u,      // operator new(size)
+    FN_GND_HEIGHT = 0x800A4564u, // dBgS_ObjGndChk_Func(cXyz&): the ground height below a point (f1), -1e9 for none
+    FN_NEW_ALIGNED = 0x802B0C60u,   // operator new(size, align)
+    FN_LINCHK_CT = 0x800F0078u,     // dBgS_LinChk::dBgS_LinChk()
+    FN_LINCHK_SET = 0x800A5678u,    // dBgS_LinChk::Set(cXyz* start, cXyz* end, fopAc_ac_c* actor)
+    FN_BGS_LINE_CROSS = 0x8024676Cu, // cBgS::LineCross(cBgS_LinChk*), on the play's dBgS
+    BGS_INSTANCE = 0x803C5EA8u,     // g_dComIfG_gameInfo.play.mBgS (dComIfG_Bgsp())
+    LINCHK_END = 0x30u,             // cBgS_LinChk::mLin's end (cM3dGLin at +0x24): the crossing after a hit
+    SCRATCH_SIZE = 0x120,
+    SCRATCH_CHK = 0x40,             // the line check object (0x6C bytes) in the scratch memory
+    WALL_BACKOFF = 12,              // an arc that meets a wall ends this far short of it
+    TRACE_STEP = 12,
+    TRACE_MAX_STEPS = 40,
+    TRACE_LOOK_UP = 50,
+    STEP_RISE = 35,
+    SETTLE_FRAMES = 4,
 };
 
 typedef struct Req {
@@ -69,6 +88,7 @@ typedef struct Peer {
     float vel[3];
     float gravity, floor_y;
     int angle, frames, since_pos;
+    bool blocked_said;
 } Peer;
 
 static atomic_flag g_lock = ATOMIC_FLAG_INIT;
@@ -94,7 +114,10 @@ static struct {
     double last_ms, start_ms;
     int room;
     uint32_t frames;
+    // A throw flown against the stage: the last point known to be free.
+    float valid[3];
 } g_held;
+static int g_settle;       // frames left to check that Link let go after a throw is not inside the ground
 
 static void lock(void) {
     while (atomic_flag_test_and_set_explicit(&g_lock, memory_order_acquire)) {
@@ -138,6 +161,105 @@ static void wr_vec(CPUState* cpu, u32 address, const float v[3]) {
 static void rd_vec(CPUState* cpu, u32 address, float v[3]) {
     for (int i = 0; i < 3; ++i)
         v[i] = rd_f(cpu, address + 4u * (u32)i);
+}
+
+// ------------------------------------------------------------- the stage ----
+
+static bool g_trace_known; // the last point walked had ground below it
+static u32 g_scratch;      // guest memory for the checks (from operator new, kept): points, then the line check object
+
+// The ground height below (x, y, z), -1e9 for none: the game's own check.
+static float ground_at(GuestCoro* co, CPUState* cpu, float x, float y, float z) {
+    if (g_scratch == 0u) {
+        const u32 block = bluewake_guest_call(co, FN_NEW_ALIGNED, SCRATCH_SIZE, 0x20u, 0, 0, 0, 0);
+        if (!guest_ptr(block))
+            return -1.0e9f;
+        g_scratch = block;
+        bluewake_guest_call(co, FN_LINCHK_CT, g_scratch + SCRATCH_CHK, 0, 0, 0, 0, 0); // dBgS_LinChk::dBgS_LinChk(), made once
+    }
+    wr_f(cpu, g_scratch, x);
+    wr_f(cpu, g_scratch + 4u, y);
+    wr_f(cpu, g_scratch + 8u, z);
+    bluewake_guest_call(co, FN_GND_HEIGHT, g_scratch, 0, 0, 0, 0, 0);
+    return (float)cpu->fpr[1];
+}
+
+// Whether the segment crosses the stage's polygons (a wall, a floor, a ceiling: the game's line check, dBgS_LinChk through cBgS::LineCross),
+// and where (the check's line end is moved to the crossing).
+static bool line_cross(GuestCoro* co, CPUState* cpu, const float a[3], const float b[3], float at[3]) {
+    if (g_scratch == 0u)
+        return false;
+    wr_vec(cpu, g_scratch + 0x10u, a);
+    wr_vec(cpu, g_scratch + 0x20u, b);
+    const u32 chk = g_scratch + SCRATCH_CHK;
+    bluewake_guest_call(co, FN_LINCHK_SET, chk, g_scratch + 0x10u, g_scratch + 0x20u, 0u, 0, 0);
+    const bool hit = (bluewake_guest_call(co, FN_BGS_LINE_CROSS, BGS_INSTANCE, chk, 0, 0, 0, 0) & 0xFFu) != 0u;
+    if (hit)
+        rd_vec(cpu, chk + LINCHK_END, at);
+    return hit;
+}
+
+// BLUEWAKE_CARRY_NOSTAGE=1 (testing): arcs know no stage, as before (the thrower's floor is where one lands).
+static bool nostage(void) {
+    static int off = -1;
+    if (off < 0)
+        off = getenv("BLUEWAKE_CARRY_NOSTAGE") != NULL;
+    return off != 0;
+}
+
+// Walks an arc's segment from `from` to `to` against the stage. 0: free (out = to); 1: stopped before a wall or pillar (out = a place a
+// little short of it); 2: reached the ground (out = the point on it).
+static int trace_arc(GuestCoro* co, CPUState* cpu, const float from[3], const float to[3], float out[3]) {
+    if (nostage()) {
+        g_trace_known = false;
+        memcpy(out, to, 3 * sizeof(float));
+        return 0;
+    }
+    float d[3], len = 0.0f;
+    for (int i = 0; i < 3; ++i) {
+        d[i] = to[i] - from[i];
+        len += d[i] * d[i];
+    }
+    int steps = (int)ceilf(sqrtf(len) / (float)TRACE_STEP);
+    steps = steps < 1 ? 1 : steps > TRACE_MAX_STEPS ? TRACE_MAX_STEPS : steps;
+    float prev[3] = {from[0], from[1], from[2]};
+    for (int s = 1; s <= steps; ++s) {
+        const float t = (float)s / (float)steps;
+        const float p[3] = {from[0] + d[0] * t, from[1] + d[1] * t, from[2] + d[2] * t};
+        float g = ground_at(co, cpu, p[0], p[1] + (float)TRACE_LOOK_UP, p[2]); // (first: makes the scratch memory the line check needs)
+        g_trace_known = g > -1.0e8f;
+        float cross[3];
+        if (line_cross(co, cpu, prev, p, cross)) {
+            // A floor under the arc is the landing, anything else a wall or a ceiling: the arc ends a little short of it.
+            const float cg = ground_at(co, cpu, cross[0], cross[1] + (float)TRACE_LOOK_UP, cross[2]);
+            if (cg > -1.0e8f && cross[1] <= cg + (float)STEP_RISE / 3.0f && d[1] <= 0.0f) {
+                out[0] = cross[0];
+                out[1] = cg;
+                out[2] = cross[2];
+                return 2;
+            }
+            const float seg = sqrtf((p[0] - prev[0]) * (p[0] - prev[0]) + (p[1] - prev[1]) * (p[1] - prev[1]) + (p[2] - prev[2]) * (p[2] - prev[2]));
+            const float back = seg > 1.0f ? (float)WALL_BACKOFF / seg : 0.0f;
+            for (int i = 0; i < 3; ++i)
+                out[i] = cross[i] + (prev[i] - p[i]) * back; // short of the wall, along the way it came
+            return 1;
+        }
+        if (g > -1.0e8f) {
+            if (g > p[1] + (float)STEP_RISE) { // a rise it could not have flown over (a pillar the line check did not meet)
+                memcpy(out, prev, sizeof prev);
+                return 1;
+            }
+            if (p[1] <= g && d[1] <= 0.0f) {
+                out[0] = p[0];
+                out[1] = g;
+                out[2] = p[2];
+                return 2;
+            }
+        }
+        memcpy(prev, p, sizeof prev);
+    }
+    memcpy(out, to, 3 * sizeof(float));
+    return 0;
 }
 
 static const char* const kReasons[BLUEWAKE_CARRY_REASON_COUNT] = {"put", "thrown", "refused", "busy", "breakfree", "area", "event", "timeout", "left"};
@@ -461,6 +583,9 @@ static void process_requests(CPUState* cpu) {
             break;
         case 2:
             if (g_held.active && g_held.carrier == r->from) {
+                if (r->phase == BLUEWAKE_CARRY_PHASE_THROWN && g_held.phase != BLUEWAKE_CARRY_PHASE_THROWN) {
+                    memcpy(g_held.valid, g_held.cur, sizeof g_held.cur); // the arc starts where he is held
+                }
                 memcpy(g_held.target, r->pos, sizeof r->pos);
                 g_held.angle = r->angle;
                 g_held.phase = r->phase;
@@ -471,6 +596,8 @@ static void process_requests(CPUState* cpu) {
         case 4: {
             if (g_held.active && g_held.carrier == r->from) {
                 const bool place = r->kind == 3 && r->angle != 0x7FFFFFFF;
+                if (place && g_held.phase == BLUEWAKE_CARRY_PHASE_THROWN)
+                    g_settle = SETTLE_FRAMES; // the place a carrier's arc gives is checked against the ground by the fiber
                 held_end(cpu, r->reason, false, place ? r->pos : NULL);
                 if (r->hurt && r->kind == 3) {
                     lock();
@@ -574,10 +701,9 @@ bool bluewake_carry_target(CPUState* cpu, int id, uint32_t actor, bool here, con
             memcpy(p->feet, at, sizeof at);
             p->feet[1] -= HOLD_DROP;
             p->floor_y = guest_ptr(player) ? rd_f(cpu, player + AC_CURRENT + 4u) : p->feet[1];
-            if (p->feet[1] < p->floor_y)
-                p->feet[1] = p->floor_y;
             p->angle = ang;
             p->frames = 0;
+            p->blocked_said = false;
             p->state = 2;
             unlock();
             fprintf(stderr, "[carry] player %d thrown: speed %.1f up %.1f angle %d, gravity %.1f\n", id, speed_f, speed_y, ang, p->gravity);
@@ -593,20 +719,36 @@ bool bluewake_carry_target(CPUState* cpu, int id, uint32_t actor, bool here, con
     return true; // flying: the puppet is shown where the arc is (bluewake_carry_puppet_pos), the stand-in follows it
 }
 
-static void flights(CPUState* cpu) {
+// The arcs of the players I threw, one step a frame from the draw fiber (it asks the stage): the puppet flies on the speed Link gave it
+// and the game's gravity, stops before a wall, lands on the ground under it (not on the thrower's own floor: a ledge, a slope or the
+// water's edge is where the ground is), and each place goes to that player as a CARRY_POS.
+static void flights(GuestCoro* co, CPUState* cpu) {
     for (int i = 0; i < MAX_PEERS; ++i) {
         Peer* p = &g_peer[i];
         if (p->id == 0 || p->state != 2)
             continue;
         ++p->frames;
-        lock();
+        float next[3], out[3];
         for (int k = 0; k < 3; ++k)
-            p->feet[k] += p->vel[k];
+            next[k] = p->feet[k] + p->vel[k];
+        const int hit = trace_arc(co, cpu, p->feet, next, out);
+        lock();
+        memcpy(p->feet, out, sizeof out);
         p->vel[1] += p->gravity;
+        if (hit == 1) {
+            p->vel[0] = 0.0f; // against a wall: it drops from there
+            p->vel[2] = 0.0f;
+        }
         unlock();
-        const bool landed = p->feet[1] <= p->floor_y && p->vel[1] <= 0.0f;
+        // (with no ground below at all, the thrower's floor is the old landing)
+        const bool no_ground = hit == 0 && !g_trace_known && p->feet[1] <= p->floor_y && p->vel[1] <= 0.0f;
+        const bool landed = hit == 2 || no_ground;
+        if (hit == 1 && !p->blocked_said) {
+            p->blocked_said = true;
+            fprintf(stderr, "[carry] player %d's arc meets a wall at %.0f %.0f %.0f\n", p->id, p->feet[0], p->feet[1], p->feet[2]);
+        }
         if (landed || p->frames >= FLIGHT_MAX || !safe_now(cpu)) {
-            if (p->feet[1] < p->floor_y)
+            if (p->feet[1] < p->floor_y && !g_trace_known)
                 p->feet[1] = p->floor_y;
             peer_release(p, BLUEWAKE_CARRY_REASON_THROWN, true, true);
             continue;
@@ -640,7 +782,6 @@ void bluewake_carry_execute(CPUState* cpu, uint32_t scene_id) {
         g_scene = scene_id;
     }
     process_requests(cpu);
-    flights(cpu);
     if (g_held.active)
         held_frame(cpu);
 }
@@ -657,7 +798,12 @@ void bluewake_carry_scene_end(CPUState* cpu) {
 // ----------------------------------------------------------------- fiber ----
 
 bool bluewake_carry_wants_fiber(void) {
-    if (g_force_release)
+    if (g_force_release || g_settle > 0)
+        return true;
+    for (int i = 0; i < MAX_PEERS; ++i)
+        if (g_peer[i].id != 0 && g_peer[i].state == 2)
+            return true; // a flight to step against the stage
+    if (g_held.active && g_held.phase == BLUEWAKE_CARRY_PHASE_THROWN)
         return true;
     return g_held.active && g_held.frames >= 1u && g_held.frames % 4u == 0u;
 }
@@ -666,6 +812,40 @@ void bluewake_carry_fiber(GuestCoro* co, CPUState* cpu) {
     const u32 player = mem_read32(cpu, PLAYER);
     if (!guest_ptr(player))
         return;
+    flights(co, cpu);
+    // I am thrown: my place this frame (set by the carrier's last position) is walked from the last free one against the stage; a
+    // wall or the ground stops the arc there, and he stays until the carrier lets go.
+    if (g_held.active && g_held.phase == BLUEWAKE_CARRY_PHASE_THROWN) {
+        float out[3];
+        const int hit = trace_arc(co, cpu, g_held.valid, g_held.cur, out);
+        if (hit != 0) {
+            // Where it stopped is a free place: I am let go there (the carrier is told; the game's own gravity does the rest), and the
+            // landing hurts as the carrier's own CARRY_END would have said (PvP on).
+            fprintf(stderr, "[carry] my arc %s at %.0f %.0f %.0f: I am let go there\n", hit == 1 ? "meets a wall" : "reaches the ground", out[0], out[1], out[2]);
+            const int carrier = g_held.carrier;
+            held_end(cpu, BLUEWAKE_CARRY_REASON_THROWN, true, out);
+            lock();
+            g_hurt_pending = true;
+            g_hurt_from = carrier;
+            memcpy(g_hurt_pos, out, sizeof out);
+            unlock();
+        } else {
+            memcpy(g_held.valid, g_held.cur, sizeof g_held.cur);
+        }
+    }
+    // Let go after a throw at a place the carrier's arc gave: not inside the ground (the ground below is read from above him).
+    if (g_settle > 0 && !g_held.active && !nostage()) {
+        --g_settle;
+        float at[3];
+        rd_vec(cpu, player + AC_CURRENT, at);
+        const float g = ground_at(co, cpu, at[0], at[1] + (float)TRACE_LOOK_UP, at[2]);
+        if (g > at[1] + 1.0f) {
+            at[1] = g;
+            set_link_place(cpu, player, at, -1);
+            fprintf(stderr, "[carry] I was let go inside the ground: raised to %.0f\n", g);
+            g_settle = 0;
+        }
+    }
     if (g_force_release) {
         g_force_release = false;
         bluewake_guest_call(co, FN_FREE_GRAB_ITEM, player, 0, 0, 0, 0, 0);

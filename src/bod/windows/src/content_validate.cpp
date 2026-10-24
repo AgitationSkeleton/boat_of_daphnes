@@ -2,6 +2,7 @@
 #include "content_validate.h"
 
 #include "player_parts.h"
+#include "png_decode.h"
 #include "rarc.h"
 
 #define PICOJSON_USE_INT64
@@ -125,6 +126,39 @@ bool ParseManifest(const std::string& text, Manifest& out, std::string* error) {
         if (!AllowedPath(f.path, f.role))
             continue; // a file this version does not use (older clients list others): never fetched
         out.files.push_back(std::move(f));
+    }
+    if (v.contains("colors") && v.get("colors").is<picojson::object>()) {
+        const auto& c = v.get("colors");
+        const auto file = [](const picojson::value& e, size_t max, ColorFile& f) {
+            if (!e.is<picojson::object>() || !e.contains("sha256") || !e.get("sha256").is<std::string>() || !e.contains("size") ||
+                !e.get("size").is<int64_t>())
+                return false;
+            f.sha256 = e.get("sha256").get<std::string>();
+            const int64_t size = e.get("size").get<int64_t>();
+            if (!IsHex64(f.sha256) || size <= 0 || static_cast<uint64_t>(size) > max)
+                return false;
+            f.size = static_cast<size_t>(size);
+            return true;
+        };
+        if (c.contains("metadata")) {
+            ColorFile f;
+            if (file(c.get("metadata"), kMaxMetadata, f))
+                out.metadata = std::move(f);
+        }
+        if (c.contains("masks") && c.get("masks").is<picojson::array>()) {
+            std::set<std::string> paths;
+            size_t total = 0;
+            for (const auto& e : c.get("masks").get<picojson::array>()) {
+                ColorFile f;
+                if (out.masks.size() >= kMaxMasks || !file(e, kMaxMaskFile, f) || !e.contains("path") || !e.get("path").is<std::string>())
+                    continue;
+                f.path = e.get("path").get<std::string>();
+                total += f.size;
+                if (!MaskPathOk(f.path) || total > kMaxMasksTotal || !paths.insert(f.path).second)
+                    continue;
+                out.masks.push_back(std::move(f));
+            }
+        }
     }
     if (v.contains("parts") && v.get("parts").is<picojson::object>()) {
         const auto& p = v.get("parts");
@@ -358,6 +392,185 @@ bool ExtractEquipment(const std::vector<uint8_t>& arc, std::map<std::string, std
     if (models.empty())
         return fail(error, "the archive has none of the equipment models");
     return true;
+}
+
+// ----------------------------------------------------------- colour pack ----
+
+bool MaskPathOk(const std::string& path) {
+    const std::string dir = "color_masks/";
+    if (path.size() < dir.size() + 5 || path.size() > 160 || path.compare(0, dir.size(), dir) != 0 ||
+        path.compare(path.size() - 4, 4, ".png") != 0)
+        return false;
+    std::string name = path.substr(dir.size(), path.size() - dir.size() - 4);
+    if (name.compare(0, 7, "mouths/") == 0)
+        name = name.substr(7);
+    if (name.empty() || name.size() > 80)
+        return false;
+    for (const char c : name)
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == ' ' || c == '_' || c == '.' || c == '-'))
+            return false;
+    return true;
+}
+
+bool ValidateMetadata(const std::vector<uint8_t>& f, std::string* error) {
+    if (f.empty() || f.size() > kMaxMetadata)
+        return fail(error, "metadata.txt has an impossible size");
+    size_t lines = 1, line = 0;
+    for (size_t i = 0; i < f.size();) {
+        const uint8_t c = f[i];
+        size_t n = 1;
+        if (c >= 0x80) { // UTF-8, strictly: no overlong forms, surrogates or values past U+10FFFF
+            n = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : 2;
+            if (c < 0xC2 || c > 0xF4 || i + n > f.size())
+                return fail(error, "metadata.txt is not UTF-8 text");
+            uint32_t cp = c & (0xFFu >> (n + 1));
+            for (size_t k = 1; k < n; ++k) {
+                if ((f[i + k] & 0xC0) != 0x80)
+                    return fail(error, "metadata.txt is not UTF-8 text");
+                cp = cp << 6 | (f[i + k] & 0x3Fu);
+            }
+            if ((n == 3 && (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF))) || (n == 4 && (cp < 0x10000 || cp > 0x10FFFF)))
+                return fail(error, "metadata.txt is not UTF-8 text");
+        } else if (c == '\n' || c == '\r') {
+            if (!(c == '\n' && i > 0 && f[i - 1] == '\r') && ++lines > 4000)
+                return fail(error, "metadata.txt has too many lines");
+            line = 0;
+            ++i;
+            continue;
+        } else if ((c < 0x20 && c != '\t') || c == 0x7F) {
+            return fail(error, "metadata.txt has control characters");
+        }
+        i += n;
+        if (++line > 2000)
+            return fail(error, "metadata.txt has a line that is too long");
+    }
+    return true;
+}
+
+namespace {
+
+uint32_t crc32(const uint8_t* p, size_t n) {
+    static const std::vector<uint32_t> table = [] {
+        std::vector<uint32_t> t(256);
+        for (uint32_t i = 0; i < 256; ++i) {
+            uint32_t c = i;
+            for (int k = 0; k < 8; ++k)
+                c = c & 1 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+            t[i] = c;
+        }
+        return t;
+    }();
+    uint32_t c = 0xFFFFFFFFu;
+    for (size_t i = 0; i < n; ++i)
+        c = table[(c ^ p[i]) & 0xFF] ^ (c >> 8);
+    return c ^ 0xFFFFFFFFu;
+}
+
+// The ancillary chunks a colour mask may carry (harmless, small); the critical ones are handled by name.
+bool mask_chunk_kept(const char* type) {
+    for (const char* k : {"gAMA", "cHRM", "sRGB", "sBIT", "pHYs", "bKGD", "tIME"})
+        if (std::memcmp(type, k, 4) == 0)
+            return true;
+    return false;
+}
+
+} // namespace
+
+bool ValidateMask(const std::vector<uint8_t>& f, std::string* error) {
+    static const uint8_t sig[8] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+    const size_t n = f.size();
+    if (n < 57 || n > kMaxMaskFile || std::memcmp(f.data(), sig, 8) != 0)
+        return fail(error, "a mask is not a PNG of an acceptable size");
+    size_t at = 8;
+    uint32_t w = 0, h = 0, depth = 0, ctype = 0;
+    bool first = true, ended = false, plte = false, trns = false, idat = false, idat_over = false;
+    size_t palette = 0;
+    while (at < n) {
+        if (ended || at + 12 > n)
+            return fail(error, "a PNG has data after its end, or a chunk that runs past the file");
+        const uint32_t len = be32(f, at);
+        if (len > n - at - 12)
+            return fail(error, "a PNG chunk runs past the file");
+        const char* type = reinterpret_cast<const char*>(&f[at + 4]);
+        if (crc32(&f[at + 4], 4 + len) != be32(f, at + 8 + len))
+            return fail(error, "a PNG chunk fails its checksum");
+        const size_t d = at + 8;
+        const auto is = [&](const char* t) { return std::memcmp(type, t, 4) == 0; };
+        if (first != is("IHDR"))
+            return fail(error, "a PNG header is missing or repeated");
+        if (is("IHDR")) {
+            w = be32(f, d), h = be32(f, d + 4), depth = f[d + 8], ctype = f[d + 9];
+            const bool depth_ok = ctype == 0   ? (depth == 1 || depth == 2 || depth == 4 || depth == 8 || depth == 16)
+                                  : ctype == 3 ? (depth == 1 || depth == 2 || depth == 4 || depth == 8)
+                                               : (ctype == 2 || ctype == 4 || ctype == 6) && (depth == 8 || depth == 16);
+            if (len != 13 || w < 1 || h < 1 || w > kMaxMaskSide || h > kMaxMaskSide || !depth_ok || f[d + 10] != 0 || f[d + 11] != 0 ||
+                f[d + 12] > 1)
+                return fail(error, "the PNG header is not acceptable");
+        } else if (is("PLTE")) {
+            if (plte || idat || ctype == 0 || ctype == 4 || len == 0 || len % 3 != 0 || len > 768 || (ctype == 3 && len / 3 > (1u << depth)))
+                return fail(error, "a PNG palette is misplaced or malformed");
+            plte = true;
+            palette = len / 3;
+        } else if (is("tRNS")) {
+            if (trns || idat || ctype == 4 || ctype == 6 || (ctype == 0 && len != 2) || (ctype == 2 && len != 6) ||
+                (ctype == 3 && (!plte || len < 1 || len > palette)))
+                return fail(error, "a PNG transparency chunk is misplaced or malformed");
+            trns = true;
+        } else if (is("IDAT")) {
+            if (idat_over)
+                return fail(error, "a PNG's image data is not contiguous");
+            idat = true;
+        } else if (is("IEND")) {
+            if (len != 0 || !idat)
+                return fail(error, "a PNG ends without image data");
+            ended = true;
+        } else if (mask_chunk_kept(type)) {
+            if (idat || len > 1024)
+                return fail(error, "a PNG chunk is misplaced or too large");
+        } else {
+            return fail(error, "a PNG carries a chunk a colour mask must not");
+        }
+        if (!is("IDAT") && idat)
+            idat_over = true;
+        first = false;
+        at += 12 + len;
+    }
+    if (!ended || (ctype == 3 && !plte))
+        return fail(error, "a PNG has no end, or an indexed one no palette");
+    // The deflate stream and the scanlines: the decoder walks all of it (a short stream is refused; the size is bounded
+    // by the sides above).
+    png_decode::Image image;
+    std::string why;
+    if (!png_decode::Decode(f.data(), f.size(), image, &why))
+        return fail(error, "a PNG does not decode: " + why);
+    if (image.width != w || image.height != h)
+        return fail(error, "a PNG decodes to another size than its header's");
+    return true;
+}
+
+bool SanitizeMask(std::vector<uint8_t>& f, std::string* error) {
+    static const uint8_t sig[8] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+    if (f.size() < 57 || std::memcmp(f.data(), sig, 8) != 0)
+        return fail(error, "not a PNG");
+    std::vector<uint8_t> out(f.begin(), f.begin() + 8);
+    size_t at = 8;
+    while (at + 12 <= f.size()) {
+        const uint32_t len = be32(f, at);
+        if (len > f.size() - at - 12)
+            return fail(error, "a PNG chunk runs past the file");
+        const char* type = reinterpret_cast<const char*>(&f[at + 4]);
+        const bool critical = !std::memcmp(type, "IHDR", 4) || !std::memcmp(type, "PLTE", 4) || !std::memcmp(type, "IDAT", 4) ||
+                              !std::memcmp(type, "IEND", 4) || !std::memcmp(type, "tRNS", 4);
+        if (critical || mask_chunk_kept(type))
+            out.insert(out.end(), f.begin() + static_cast<std::ptrdiff_t>(at), f.begin() + static_cast<std::ptrdiff_t>(at + 12 + len));
+        const bool end = !std::memcmp(type, "IEND", 4);
+        at += 12 + len;
+        if (end) { // anything after IEND is dropped
+            f = std::move(out);
+            return true;
+        }
+    }
+    return fail(error, "a PNG has no end");
 }
 
 // ---------------------------------------------------------------- audio ----

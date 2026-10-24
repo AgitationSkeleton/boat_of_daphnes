@@ -10,7 +10,9 @@
 //   mode lift-refuse  as lift, but this player answers the CARRY_START with CARRY_END refused: the game must let go.
 //   mode carry-put    at <start> send CARRY_START to the game, hold it at my hands (CARRY_POS 10 a second, a slow sway), and at
 //                     <end> put it down (CARRY_END put).
-//   mode carry-throw  the same, and at <end> throw it: an arc of CARRY_POS (phase thrown) away from me, then CARRY_END thrown (hurt).
+//   (MATE_FOLLOW=1: this player goes along when the game changes stage, and MATE_STAGE=<name> waits for that stage before it counts its seconds.)
+//   mode carry-throw  the same, and at <end> throw it: an arc of CARRY_POS (phase thrown) away from me (+x; MATE_ARC=dx,dz,up changes it),
+//                     then CARRY_END thrown (hurt). The arc knows no walls: the game's own Link is what keeps out of them.
 //   mode carry-wait   the same without an end: waits for the game's CARRY_END (break free with B) or a timeout.
 //   mode carry-event  send CARRY_START at <start> (the scenario has an event running then: the game must refuse).
 // The first line printed per message type is "MATE ..."; the scenario checks the game's own log, this log is evidence for the
@@ -19,7 +21,7 @@ const [base, room, seconds, mode, allow = '1', ox = '120', oz = '0', startAt = '
 const ws = new WebSocket(`${base}/ws?room=${room}`);
 const t0 = Date.now();
 const log = (...a) => console.log(`MATE ${((Date.now() - t0) / 1000).toFixed(1)}s`, ...a);
-let me = 0, gameId = 0, frame = null, spot = null, started = false, ended = false, gameAt = null, tFrame = 0;
+let myStage = 'sea', me = 0, gameId = 0, frame = null, spot = null, started = false, ended = false, gameAt = null, tFrame = 0;
 
 ws.onopen = () => ws.send(JSON.stringify({ type: 'HANDSHAKE', protocol: 1,
   roomState: { pvp: 'off', pvpScale: 1, pvpFriendlyFire: 0, playerCollision: 1, allowCarrying: Number(allow) },
@@ -32,12 +34,19 @@ ws.onmessage = (e) => {
     for (const c of m.state) {
       if (c.self) me = c.clientId;
       else if (c.online && !gameId) { gameId = c.clientId; log('the game is player', gameId); }
+      else if (c.online && c.clientId === gameId && process.env.MATE_FOLLOW && c.stage && c.stage !== myStage) {
+        // MATE_FOLLOW=1: the game changed stage (a warp): this player goes along, and takes the first pose there as its reference
+        myStage = c.stage;
+        frame = null;
+        log('the game is in stage', c.stage, 'room', c.room, ': following');
+        send({ type: 'UPDATE_CLIENT_STATE', state: { name: 'Mate', teamId: 'blue', stage: c.stage, room: c.room, isSaveLoaded: true } });
+      }
     }
   }
   if (m.type === 'UPDATE_ROOM_STATE') log('room state', JSON.stringify(m.roomState), 'owner', m.ownerClientId);
   if (m.type === 'PLAYER_UPDATE' && m.pose) {
     gameAt = m.pos;
-    if (!frame) {
+    if (!frame && (!process.env.MATE_STAGE || m.stage === process.env.MATE_STAGE)) { // (MATE_STAGE=<stage>: the first pose in that stage is the reference)
       frame = m;
       tFrame = Date.now(); // the times below count from the game's first pose
       spot = [m.pos[0] + Number(ox), m.pos[1], m.pos[2] + Number(oz)];
@@ -88,9 +97,11 @@ function carryEnd() {
     log('put the game down at', ground.map((v) => v.toFixed(0)).join(' '));
   } else {
     // An arc away from me (+x), 14 steps of 33 ms: up 22, gravity -3 (about the game's own pot throw).
-    let pos = [...from], vy = 22, step = 0;
+    // (MATE_ARC="dx,dz,up": the steps in x and z and the first vertical speed, to throw toward a wall: the default is +x)
+    const [adx, adz, aup] = (process.env.MATE_ARC || '14,0,22').split(',').map(Number);
+    let pos = [...from], vy = aup, step = 0;
     const flight = setInterval(() => {
-      pos = [pos[0] + 14, pos[1] + vy, pos[2]];
+      pos = [pos[0] + adx, pos[1] + vy, pos[2] + adz];
       vy -= 3;
       step++;
       const landed = pos[1] <= spot[1];

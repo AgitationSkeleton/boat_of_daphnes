@@ -86,6 +86,9 @@ void bluewake_puppet_set_sounds(bool on);
 // Where the puppets' fast pool lies in a MEM1 array of this size (32 MB: the top of the dynamic REL window; 64 MB: everything
 // above 0x82000000); false when none.
 bool bluewake_puppet_fast_range(u32 ram_size, u32* base, u32* bytes);
+// (app) An explosion of another player's bomb (one this PC made a harmless copy of) went off near me: whose, and where. True once per
+// blast. The app decides whether it hurts: only where the room's PvP rules say that player may hit me (anchor.cpp).
+bool bluewake_puppet_take_blast(int* player, float pos[3]);
 // Test: the local pose is also fed back as player 1000, offset sideways by this
 // many units (BLUEWAKE_PUPPET_SELF).
 void bluewake_puppet_self_test(float offset);

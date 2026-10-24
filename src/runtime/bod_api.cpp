@@ -24,6 +24,7 @@ void dol_aurora_set_overlay(DolAuroraOverlayFn draw, void* user) { bod::setOverl
 void aurora_set_present_suppressed(bool suppressed) { bod::g_presentSuppressed = suppressed; }
 void aurora_set_frame_interpolation(bool enabled) { bod::g_interp = enabled; }
 bool aurora_get_frame_interpolation(void) { return bod::g_interp; }
+float aurora_get_frame_blend(void) { return bod::g_blendT; }
 void aurora_set_frame_interp_steps(int steps) { bod::g_interpSteps = steps; }
 int aurora_get_frame_interp_steps(void) { return bod::g_interpSteps; }
 void aurora_set_fps_overlay(bool enabled) { bod::g_fpsOverlay = enabled; }
@@ -239,6 +240,29 @@ void testGive(CPUState* c) {
     bod_guest_call_cpu(c, 0x80026ADCu);
     std::fprintf(stderr, "[test] item %lu dropped at Link's feet\n", std::strtoul(colon + 1, nullptr, 0));
 }
+// Testing: BLUEWAKE_TEST_ITEMS=<retrace>:<item no>:<inventory slot>:<button 0 X, 1 Y, 2 Z>[,...] gives the item as the game's own item
+// function does (execItemGet: the Bomb Bag with its 30 bombs, the Wind Waker) and puts it on that button, as the item screen would:
+// for a scenario that has Link take out a bomb or play the baton (a ground item that triggers a get-demo is not what these are).
+void testItems(CPUState* c) {
+    static const char* const spec = std::getenv("BLUEWAKE_TEST_ITEMS");
+    static const char* next = spec;
+    if (!spec || !next || !*next) return;
+    unsigned long long at = 0;
+    unsigned item = 0, slot = 0, button = 0;
+    int used = 0;
+    if (std::sscanf(next, "%llu:%i:%u:%u%n", &at, &item, &slot, &button, &used) < 4) { next = nullptr; return; }
+    const u32 player = mem_read32(c, 0x803CA754u);
+    if (retraceCount() < at || player < 0x80000000u || player >= 0x81800000u) return;
+    const CPUState saved = *c;  // (the hook's registers are put back after the call)
+    c->gpr[3] = item;
+    bod_guest_call_cpu(c, 0x800C2DFCu);  // execItemGet(u8)
+    *c = saved;
+    mem_write8(c, 0x803C4C08u + 0x09u + button, u8(slot));  // dSv_player_status_a_c::mSelectItem[button]
+    mem_write8(c, 0x803C5EA8u + 0x4933u + button, u8(item));  // dComIfG_play_c::mSelectItem[button]: what the button shows and does (dComIfGp_setSelectItem)
+    std::fprintf(stderr, "[test] item %u given, on button %u (inventory slot %u)\n", item, button, slot);
+    next += used;
+    if (*next == ',') ++next;
+}
 }  // namespace
 // As its host's boot (main.c): the features' attach, then each retrace their retrace work.
 void apiAttach() {
@@ -342,6 +366,7 @@ unsigned apiHostHook(Regs regs, unsigned id, unsigned pc) {
     case 30:  // dScnPly_Draw: the gyro aiming, Reveal Sea Chart's panes, the puppets, the Bunny Hood, the autosave
         bod::gyroFrame();
         testGive(c);
+        testItems(c);
         r = bluewake_chart_reveal_hook(c, 0x80234F5Cu);
         if (!r) r = bluewake_puppet_hook(c, id);
         if (!r) r = bluewake_bunny_hood_draw_hook(c, 0x80234F5Cu);
