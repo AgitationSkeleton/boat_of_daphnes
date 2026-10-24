@@ -385,7 +385,7 @@ def run(args, s: dict) -> dict:
                 time.sleep(0.5)
                 if time.time() > deadline and not wrapped:
                     proc.kill()
-                text = log.read_text(errors="replace") if log.exists() else ""
+                text = merged_log(log, exe, t0)
                 if not dead and re.search(r"Failed assertion|CRASH:|FATAL", text):
                     dead = time.time()  # the game stopped itself: no use holding the game lock; its log says why
                 if dead and time.time() > dead + 8:
@@ -402,11 +402,21 @@ def run(args, s: dict) -> dict:
             settings.write_bytes(saved)
         elif s["cvars"] and settings.exists():
             settings.unlink()
-    return finish(args, s, out, log, code, time.time() - t0)
+    return finish(args, s, out, log, code, time.time() - t0, merged_log(log, exe, t0))
 
 
-def finish(args, s: dict, out: Path, log: Path, code, seconds: float) -> dict:
+def merged_log(log: Path, exe: Path, since: float) -> str:
+    """The run's log, plus this run's host log: a windowed run keeps the script's own lines ([script] ...) in
+    logs/session-*-host.log beside the program, not on stderr."""
     text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+    for host in sorted((exe.parent / "logs").glob("session-*-host.log")):
+        if host.stat().st_mtime >= since:
+            text += "\n" + host.read_text(encoding="utf-8", errors="replace")
+    return text
+
+
+def finish(args, s: dict, out: Path, log: Path, code, seconds: float, text: str = "") -> dict:
+    text = text or (log.read_text(encoding="utf-8", errors="replace") if log.exists() else "")
     shots = convert_dumps(out / "shots") + sorted(p.name for p in (out / "shots").glob("*.png"))
     result = {"scenario": s["name"], "exit": code, "seconds": round(seconds), "shots": sorted(set(shots)), "expect": [],
               "peeks": re.findall(r"\[script\] peek .*", text), "problems": [], "passed": True}

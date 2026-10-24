@@ -152,6 +152,7 @@ constexpr HookDef kHooks[] = {
     {28, {0, 0, 0x8010E950}, false, 71},  // bunny_hood
     {28, {0, 0, 0x801A55D0}, false, 72},  // bunny_hood
     {28, {0, 0, 0x801A5498}, false, 73},  // bunny_hood
+    {28, {0, 0, 0x8011215C}, false, 74},  // bunny_hood
 };
 constexpr WriteDef kWrites[] = {
     {1, {168, 4, 0x128}, 4, 0x3CF5C28F},  // swift_sail

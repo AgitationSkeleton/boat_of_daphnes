@@ -904,6 +904,20 @@ u32 bluewake_bunny_hood_hook(CPUState* cpu, u32 id) {
     case BLUEWAKE_BUNNY_HOOK_MENU:
         hook_menu(cpu);
         return 0u;
+    case BLUEWAKE_BUNNY_HOOK_MASK:
+        // The pause screen's view of the slot says "Hero's Charm worn" while the hood is: the game would draw the charm's
+        // mask on Link. It follows the real byte (the hood has its own model).
+        if (g_translated && (collect_byte(cpu) & BLUEWAKE_BUNNY_CHARM_WORN) != 0u &&
+            (g_real & BLUEWAKE_BUNNY_CHARM_WORN) == 0u) {
+            static bool logged;
+            if (!logged) {
+                logged = true;
+                fprintf(stderr, "[bunny] the pause screen's view of the slot is not the charm's mask on Link (checkMaskDraw: false)\n");
+            }
+            cpu->gpr[3] = 0u;
+            return cpu->lr;
+        }
+        return 0u;
     case BLUEWAKE_BUNNY_HOOK_MENU_END:
         menu_sync(cpu);
         g_anim = 0;

@@ -363,7 +363,8 @@ u32 runHook(Ctx& c, int id, u32 pc) {
     case 70:
     case 71:
     case 72:
-    case 73: return hostHook(c, unsigned(id), pc);
+    case 73:
+    case 74: return hostHook(c, unsigned(id), pc);
     case 50: return randoUiHook(c);
     default:
         if (id >= 18 && id <= 26) return hookFix(c, id, pc);
