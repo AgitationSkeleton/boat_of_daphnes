@@ -84,6 +84,7 @@ extern "C" {  // (C headers without their own guards)
 #include "gxruntime/dvd.h"
 }
 
+#include <cstdlib>
 #include <cstring>
 
 extern "C" {
@@ -209,8 +210,15 @@ void apiAttach() {
     bluewake_fast_load_attach(cpu());
     bluewake_treasure_glow_attach();
     bluewake_quick_doors_attach(cpu());
+    // Testing (headless runs have no settings screen to turn it on): BLUEWAKE_TEST_BUNNY=1 / BLUEWAKE_TEST_CHART=1 switch the Bunny Hood / Reveal Sea Chart on.
+    if (std::getenv("BLUEWAKE_TEST_BUNNY")) bluewake_bunny_hood_enable(true);
+    if (std::getenv("BLUEWAKE_TEST_CHART")) bluewake_chart_reveal_enable(true);
 }
 void apiRetrace() {
+    // Testing: BLUEWAKE_TEST_FMAP=<retrace> opens the Sea Chart in its warp mode at that retrace (mFmapOpen = 1, as the Ballad of Gales does).
+    static const long s_fmapAt = std::getenv("BLUEWAKE_TEST_FMAP") ? std::atol(std::getenv("BLUEWAKE_TEST_FMAP")) : 0;
+    static bool s_fmapDone = false;
+    if (s_fmapAt > 0 && !s_fmapDone && retraceCount() >= u64(s_fmapAt)) s_fmapDone = true, mem_write8(cpu(), 0x803CA7F9u, 1);
     bluewake_cosmetics_retrace(cpu());
     bluewake_game_state_retrace(cpu());
     bluewake_fast_load_retrace(0);

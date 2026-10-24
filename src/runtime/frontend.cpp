@@ -119,13 +119,15 @@ u16 scriptedButtons() {
             if (*s != ':') break;
             const char* name = ++s;
             while (*s && *s != ',') s++;
-            const std::string b(name, size_t(s - name));
+            std::string b(name, size_t(s - name));
+            u64 length = 8;  // "300:UP:240" holds the button for 240 frames
+            if (const size_t colon = b.find(':'); colon != std::string::npos) length = std::strtoull(b.c_str() + colon + 1, nullptr, 10), b.resize(colon);
             const u16 mask = b == "A" ? PAD_BUTTON_A : b == "B" ? PAD_BUTTON_B : b == "X" ? PAD_BUTTON_X
                            : b == "Y" ? PAD_BUTTON_Y : b == "START" ? PAD_BUTTON_START : b == "UP" ? PAD_BUTTON_UP
                            : b == "DOWN" ? PAD_BUTTON_DOWN : b == "LEFT" ? PAD_BUTTON_LEFT : b == "RIGHT" ? PAD_BUTTON_RIGHT
                            : b == "SL" ? kStickLeft : b == "SR" ? kStickRight : b == "CU" ? kCStickUp : b == "CD" ? kCStickDown
                            : b == "R" ? PAD_TRIGGER_R : b == "L" ? PAD_TRIGGER_L : b == "Z" ? PAD_TRIGGER_Z : 0;
-            v.push_back({frame, mask});
+            for (u64 at = 0; at < length; at += 8) v.push_back({frame + at, mask});
             if (*s == ',') s++;
         }
         return v;
@@ -222,6 +224,8 @@ void pollPads() {
     st[0].button |= scripted & ~(kStickLeft | kStickRight | kCStickUp | kCStickDown);
     if (scripted & kCStickUp) st[0].substickY = 100;
     if (scripted & kCStickDown) st[0].substickY = -100;
+    if (scripted & PAD_TRIGGER_R) st[0].triggerRight = 255;  // (the analog trigger too)
+    if (scripted & PAD_TRIGGER_L) st[0].triggerLeft = 255;
     if (scripted & kStickLeft) st[0].stickX = -100;
     if (scripted & kStickRight) st[0].stickX = 100;
     // (scripted directions move the stick too: some menus read only the stick)
