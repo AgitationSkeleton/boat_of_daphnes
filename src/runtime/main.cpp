@@ -141,7 +141,11 @@ int main(int argc, char** argv) {
         std::error_code ec;
         const std::filesystem::path plain = exeFolder() / "game" / "GZLE01.iso";
         const std::string seedDisc = std::filesystem::exists(plain, ec) ? plain.string() : isoPath;
+#if defined(_WIN32)
         if (!seedDisc.empty() && !std::getenv("BLUEWAKE_DISC")) _putenv_s("BLUEWAKE_DISC", seedDisc.c_str());
+#else
+        if (!seedDisc.empty()) setenv("BLUEWAKE_DISC", seedDisc.c_str(), 0);
+#endif
     }
     // The randomizer beside the game (game/rando/ and tww_game_rando.dll): both programs loaded, switched while the
     // game runs (src/runtime/modswitch.cpp). Without the function table, the file select restarts the game into it.

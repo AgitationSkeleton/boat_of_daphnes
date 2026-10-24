@@ -124,9 +124,11 @@ if (WIN32)
 endif ()
 add_library(bod_ui STATIC ${BOD_UI_SOURCES} ${BOD_COMPAT_SOURCES} ${BOD_HOST_SOURCES} ${BOD_DIR}/runtime/host/src/ship/cvar.cpp
     ${BOD_DIR}/shim/bod_stubs.c ${BOD_DIR}/shim/rando_bridge.c ${BOD_DIR}/shim/guest_coro_sync.c ${CMAKE_CURRENT_BINARY_DIR}/emibios_data.c)
-target_include_directories(bod_ui PUBLIC
-    ${BOD_DIR}/windows/compat/include ${BOD_DIR}/windows/compat ${BOD_DIR}/runtime/host/src ${BOD_DIR}/include
-    ${BOD_DIR}/windows/src)
+target_include_directories(bod_ui PUBLIC ${BOD_DIR}/runtime/host/src ${BOD_DIR}/include ${BOD_DIR}/windows/src)
+if (WIN32)
+    # (the POSIX headers a Windows build lacks: unistd.h, pthread.h, dirent.h ...)
+    target_include_directories(bod_ui PUBLIC ${BOD_DIR}/windows/compat/include ${BOD_DIR}/windows/compat)
+endif ()
 if (WIN32)
     target_compile_options(bod_ui PRIVATE /FI${BOD_DIR}/windows/compat/bw_posix_compat.h /FI${BOD_DIR}/shim/bod_compat.h
         $<$<COMPILE_LANGUAGE:CXX>:/EHsc> -Wno-unused-function -Wno-unused-variable)
@@ -154,6 +156,20 @@ endif ()
 
 # ---- The program (tww): the runtime. It loads tww_game.dll, the game's code built from the disc ---
 set(TWW_ICON_INC ${CMAKE_BINARY_DIR}/generated/app_icon.inc)
+if (NOT WIN32)
+    # The window's icon on Linux (src/runtime/appicon.h): the PNG compiled in, as the GBA BIOS above. Windows takes it from
+    # the program's resources.
+    file(READ ${BOD_DIR}/windows/resources/BlueWake.png _icon_hex HEX)
+    string(LENGTH "${_icon_hex}" _icon_hex_len)
+    math(EXPR _icon_size "${_icon_hex_len} / 2")
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _icon_c "${_icon_hex}")
+    file(WRITE ${TWW_ICON_INC}.tmp "/* generated from src/bod/windows/resources/BlueWake.png */
+static const unsigned char kAppIconPng[] = {${_icon_c}};
+static const unsigned long kAppIconPngSize = ${_icon_size}ul;
+")
+    file(COPY_FILE ${TWW_ICON_INC}.tmp ${TWW_ICON_INC} ONLY_IF_DIFFERENT)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${BOD_DIR}/windows/resources/BlueWake.png)
+endif ()
 file(GLOB RUNTIME_SOURCES CONFIGURE_DEPENDS src/runtime/*.cpp)
 # First-run setup (src/setup): the game's code built from the player's disc inside the program, with the files it
 # compiles the module with embedded.

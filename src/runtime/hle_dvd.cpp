@@ -24,6 +24,11 @@
 #include <unordered_map>
 #include <vector>
 
+#if !defined(_WIN32)
+#include <strings.h>
+#define _strnicmp strncasecmp
+#endif
+
 namespace rt {
 u64 gxFrames();  // src/runtime/gx.cpp
 

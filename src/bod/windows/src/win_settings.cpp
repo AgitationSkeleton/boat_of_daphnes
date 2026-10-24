@@ -1453,9 +1453,7 @@ void load_font(SDL_Window* w) {
     }
     // The menu's faces: RocknRoll One (OFL, assets/fonts), the free rounded face nearest The Wind Waker's own.
     {
-        wchar_t exe[MAX_PATH];
-        const DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
-        const std::filesystem::path rr = std::filesystem::path(std::wstring(exe, n)).parent_path() / "assets" / "fonts" / "RocknRollOne-Regular.ttf";
+        const std::filesystem::path rr = bodplat::ExeFolder() / "assets" / "fonts" / "RocknRollOne-Regular.ttf";
         std::error_code ec;
         if (std::filesystem::exists(rr, ec)) {
             const std::string p = rr.string();
