@@ -1888,6 +1888,7 @@ void frame(void*) {
     }
     track_window(w);
     bw_crash_heartbeat();  // the hang watchdog (win_crash.cpp)
+    mods::Frame();         // a voice change in progress (mods.cpp)
     {
         // A console reset the game asked for (OSResetSystem, game_options.c): started again, as the console reboots.
         static bool restarting;
@@ -1904,6 +1905,48 @@ void frame(void*) {
             hung = true;
             std::fprintf(stderr, "[test] the UI thread stops for 15 s\n");
             SDL_Delay(15000);
+        }
+    }
+    {
+        // BLUEWAKE_TEST_SDL_DROP=file|text:<payload>[@<frame>] (a test of the drop path under Proton/Wine, which delivers a
+        // drop as text): pushes a real SDL_EVENT_DROP_FILE / SDL_EVENT_DROP_TEXT, so the window, Aurora's event forwarding,
+        // bluewake_settings_menu_event, droppath::to_path and the seed loader all run. At that run frame, or on the first
+        // frame of the file select when none is given. Several are separated by '|' after a frame: "file:A@300|text:B@600".
+        static const char* spec = std::getenv("BLUEWAKE_TEST_SDL_DROP");
+        static std::vector<std::string> pending;
+        static bool parsed;
+        static unsigned test_drop_frames;
+        ++test_drop_frames;
+        if (spec != nullptr && !parsed) {
+            parsed = true;
+            std::string rest = spec;
+            for (size_t at = 0; at <= rest.size();) {
+                const size_t bar = rest.find("|text:", at) < rest.find("|file:", at) ? rest.find("|text:", at) : rest.find("|file:", at);
+                pending.push_back(rest.substr(at, bar == std::string::npos ? std::string::npos : bar - at));
+                if (bar == std::string::npos)
+                    break;
+                at = bar + 1;
+            }
+        }
+        if (!pending.empty()) {
+            std::string item = pending.front();
+            long at = -1;
+            if (const size_t pos = item.rfind('@');
+                pos != std::string::npos && pos + 1 < item.size() && item.find_first_not_of("0123456789", pos + 1) == std::string::npos) {
+                at = std::atol(item.c_str() + pos + 1);
+                item.resize(pos);
+            }
+            const bool on_select = bluewake_game_location().scene_proc == BLUEWAKE_SCENE_NAME;
+            if (at >= 0 ? static_cast<long>(test_drop_frames) >= at : on_select) {
+                pending.erase(pending.begin());
+                SDL_Event e{};
+                const bool text = item.rfind("text:", 0) == 0;
+                e.type = text ? SDL_EVENT_DROP_TEXT : SDL_EVENT_DROP_FILE;
+                e.drop.data = SDL_strdup(item.c_str() + (text ? 5 : (item.rfind("file:", 0) == 0 ? 5 : 0)));  // (SDL frees it)
+                e.drop.windowID = SDL_GetWindowID(w);
+                std::fprintf(stderr, "[test] SDL %s event pushed: %s\n", text ? "DROP_TEXT" : "DROP_FILE", e.drop.data);
+                SDL_PushEvent(&e);
+            }
         }
     }
     // Internal Resolution follows the window's size.

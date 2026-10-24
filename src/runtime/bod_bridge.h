@@ -3,6 +3,7 @@
 // bod_api.cpp (Boat of Daphnes' API, built with its own headers, which clash with the runtime's).
 // Plain types only.
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 
 namespace rt::bod {
@@ -49,6 +50,10 @@ void callGuest(unsigned function);                      // bod_host.cpp: a guest
 bool playerModelLive();                                 // bod_extras.cpp: hook 13 has run
 void playerModelRequest();                              // ... a swap of Link's archive at the next play scene
 int playerModelState();                                 // ... as bluewake_player_model_state
+bool voiceSwapLive();                                   // bod_voice.cpp: the game's wave banks are registered
+bool voiceSwapRequest(const void* oldAaf, size_t oldN, const void* newAaf, size_t newN, const char* const* names,
+                      const void* const* data, const size_t* sizes, int count);
+int voiceSwapState();                                   // 1 asked for, 2 done, -1 failed (0 none)
 unsigned apiForestWaterTreeCheck();                     // ... the address its timer check is at (0: none)
 bool optionDescribe(unsigned position, const char** name, const char** title, bool* defaultOn, bool* on);
 }  // namespace rt::bod

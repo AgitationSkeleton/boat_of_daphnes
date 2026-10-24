@@ -158,6 +158,14 @@ extern "C" void bluewake_player_model_swap(void) {
 }
 extern "C" int bluewake_player_model_state(void) { return bod::playerModelState(); }
 
+// Link's voice changed while the game runs (bod_voice.cpp; voice_swap.h).
+extern "C" bool bluewake_voice_swap_live(void) { return bod::voiceSwapLive(); }
+extern "C" bool bluewake_voice_swap(const void* old_aaf, size_t old_n, const void* new_aaf, size_t new_n, const char* const* names,
+                                    const void* const* data, const size_t* sizes, int count) {
+    return bod::voiceSwapRequest(old_aaf, old_n, new_aaf, new_n, names, data, sizes, count);
+}
+extern "C" int bluewake_voice_swap_state(void) { return bod::voiceSwapState(); }
+
 // (its dynamic ImGui textures: this runtime's Aurora, extern/aurora, has them)
 
 namespace {

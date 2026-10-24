@@ -67,6 +67,7 @@ private:
     bool link(int step, const std::filesystem::path& obj, const char* dll);
     bool patchRando();
     bool extras();
+    bool extrasData(const char* title);  // just the scripts' data (assets/), with its own stamp
     void set(int step, float frac, const std::string& detail);
     bool fail(const std::string& why);
     void log(const std::string& line);
@@ -74,6 +75,7 @@ private:
     std::filesystem::path m_exeDir, m_disc, m_work, m_logFile;
     std::thread m_thread;
     std::atomic<bool> m_running{false}, m_cancel{false};
+    int m_failedJobs = 0;
     mutable std::mutex m_lock;
     Status m_status;
     std::chrono::steady_clock::time_point m_t0;

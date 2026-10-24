@@ -28,6 +28,8 @@ void BuildMenu(shipmenu::Menu& m, const char* header);
 // The mods folder; and the list made again from it and put in effect (a model just downloaded there goes on top, enabled).
 std::string Folder();
 void RescanAndApply();
+// Each frame: finishes a voice change asked for while the game runs (see LoadedVoiceId).
+void Frame();
 // The player model the enabled list gives (the top entry with one), "" for Link.
 std::string ActiveModel();
 // The files of the player model whose Link.arc the last Apply put in effect (Link.arc, metadata.txt,
@@ -48,7 +50,8 @@ struct SharedParts {
 };
 // False when the game has the disc's Link, equipment and voice.
 bool ActivePlayerPack(std::string& name, std::vector<PackFile>& out, SharedParts& parts);
-// The id of the voice the game loaded at start (its audio init reads the voice files once): "" for the game's own, else
+// The id of the voice the game has loaded (its audio init reads the voice files once; a change made while it runs is
+// swapped in live, runtime/bod_voice.cpp): "" for the game's own, else
 // the first 16 hex digits of the SHA-256 of JaiInit.aaf and of voice_0.aw, joined. A peer with the same id sounds
 // right through the local voice bank.
 std::string LoadedVoiceId();
