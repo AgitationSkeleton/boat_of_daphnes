@@ -10,6 +10,7 @@
 //   mode lift-refuse  as lift, but this player answers the CARRY_START with CARRY_END refused: the game must let go.
 //   mode carry-put    at <start> send CARRY_START to the game, hold it at my hands (CARRY_POS 10 a second, a slow sway), and at
 //                     <end> put it down (CARRY_END put).
+//   (MATE_FOLLOW=1: this player goes along when the game changes stage, and MATE_STAGE=<name> waits for that stage before it counts its seconds.)
 //   mode carry-throw  the same, and at <end> throw it: an arc of CARRY_POS (phase thrown) away from me (+x; MATE_ARC=dx,dz,up changes it),
 //                     then CARRY_END thrown (hurt). The arc knows no walls: the game's own Link is what keeps out of them.
 //   mode carry-wait   the same without an end: waits for the game's CARRY_END (break free with B) or a timeout.
@@ -45,7 +46,7 @@ ws.onmessage = (e) => {
   if (m.type === 'UPDATE_ROOM_STATE') log('room state', JSON.stringify(m.roomState), 'owner', m.ownerClientId);
   if (m.type === 'PLAYER_UPDATE' && m.pose) {
     gameAt = m.pos;
-    if (!frame) {
+    if (!frame && (!process.env.MATE_STAGE || m.stage === process.env.MATE_STAGE)) { // (MATE_STAGE=<stage>: the first pose in that stage is the reference)
       frame = m;
       tFrame = Date.now(); // the times below count from the game's first pose
       spot = [m.pos[0] + Number(ox), m.pos[1], m.pos[2] + Number(oz)];

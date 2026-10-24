@@ -23,6 +23,7 @@
 //         MATE_HOLD=<kind> (the first pose of the game's with an attachment of that kind, 1 item in hand, 9 item get, 4 grab, is replayed as it was sent: what a real client sends),
 //         MATE_SAVEHOLD=<file> (with MATE_HOLD: the pose is saved), MATE_LOADHOLD=<file> (that pose is replayed beside the game's Link, in another run),
 //         MATE_BOMB=<seconds> (a scripted bomb: held, thrown, goes off; as a client's pose lists it, see bombChunk),
+//         MATE_BOMB_LOSS=1 (with MATE_BOMB: the poses that say it went off are lost: the bomb stops being listed, and the receiver's timeout makes it go off),
 //         MATE_NOEYE=1 (the eye chunk is left out, as an older client's pose has it: the pupils look straight ahead),
 //         MATE_NOFACE=1 (the expression chunk is left out of the replayed pose: the puppet's face must not be the game's own Link's),
 //         MATE_GEAR=1 (the replayed pose has the Hero's Sword on the back and the Hero's Shield on the arm, as a player
@@ -253,7 +254,7 @@ function bombChunk(pose, startedAt) {
     const f = (t - heldEnd) / (flyEnd - heldEnd);
     e = entry(1, fuse, [base[0] + 20 + 160 * f, base[1] + 80 + 220 * f - 300 * f * f, base[2] + 25 + 40 * f], handRel);
   } else if (t < boom) e = entry(1, fuse, [base[0] + 180, base[1] + 0, base[2] + 65], handRel);
-  else if (t < boom + 2) e = entry(2, 0, [base[0] + 180, base[1] + 0, base[2] + 65], handRel);
+  else if (t < boom + 2 && !process.env.MATE_BOMB_LOSS) e = entry(2, 0, [base[0] + 180, base[1] + 0, base[2] + 65], handRel);
   else return Buffer.alloc(0);
   const tag = Buffer.alloc(4);
   tag[0] = 7; tag.writeInt16LE(1 + e.length, 1); tag[3] = 1;
