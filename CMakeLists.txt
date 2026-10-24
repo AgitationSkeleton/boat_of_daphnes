@@ -209,6 +209,16 @@ target_include_directories(tww PRIVATE ${CMAKE_SOURCE_DIR}/extern/aurora/lib)
 if (UNIX)
     target_link_libraries(tww PRIVATE ${CMAKE_DL_LIBS})
 endif ()
+# A shared SDL3 (Aurora's, built with it) beside the program under its soname, as Windows copies its DLLs: the program
+# finds it through its $ORIGIN rpath, and tools/linux/package.py ships it from there.
+if (UNIX AND NOT APPLE AND AURORA_SDL3_TARGET AND NOT AURORA_SDL3_TARGET MATCHES "static")
+    get_target_property(_sdl3_type ${AURORA_SDL3_TARGET} TYPE)
+    if (_sdl3_type STREQUAL "SHARED_LIBRARY")
+        add_custom_command(TARGET tww POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${AURORA_SDL3_TARGET}>
+                $<TARGET_FILE_DIR:tww>/$<TARGET_SONAME_FILE_NAME:${AURORA_SDL3_TARGET}>)
+    endif ()
+endif ()
 if (UNIX AND NOT APPLE)
     # The release asks nothing of the player's libstdc++ (the game's modules are freestanding and never see it).
     option(BOD_STATIC_STDLIB "Link libstdc++ and libgcc into the program" OFF)
