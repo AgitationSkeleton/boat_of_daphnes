@@ -1361,6 +1361,12 @@ void Menu::Draw(bool* open, float scale, float fontScale, float appear, bool clo
     } else {
         const float leftW = std::floor(bodyW * 0.56f), rightW = bodyW - leftW - 28.f * s;
         ImGui::BeginChild("##left", ImVec2(leftW, bodyH), ImGuiChildFlags_None);
+        // (a scenario's `menu set gTest.MenuScroll=N`: the page scrolled to N points once, for captures of its lower rows)
+        static int s_testScroll = 0;
+        if (const int scroll = CVarGetInteger("gTest.MenuScroll", 0); scroll != s_testScroll) {
+            s_testScroll = scroll;
+            ImGui::SetScrollY(float(scroll) * s);
+        }
         ImDrawList* ldl = ImGui::GetWindowDrawList();
         const int leftFrom = ldl->VtxBuffer.Size;
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.f * s, 9.f * s));

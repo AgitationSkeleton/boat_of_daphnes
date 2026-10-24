@@ -529,7 +529,9 @@ void Menu::DrawClassic(bool* open, float scale, float fontScale) {
     ImGui::Spacing();
 
     Header& header = mHeaders[active];
-    const float sidebarW = block.x > 1600.0f * scale ? block.x * 0.15f : 200.0f * scale;
+    float sidebarW = block.x > 1600.0f * scale ? block.x * 0.15f : 200.0f * scale;
+    for (const auto& name : header.order)  // (wide enough for its longest name, whatever the UI Scale: not clipped)
+        sidebarW = std::max(sidebarW, ImGui::CalcTextSize(name.c_str()).x + style.FramePadding.x * 2.0f + 28.0f * scale);
     const float contentH = ImGui::GetContentRegionAvail().y;
     std::string page = CVarGetString(header.sidebarCVar.c_str(), header.order.empty() ? "" : header.order.front().c_str());
     if (!header.sidebars.count(page) && !header.order.empty())

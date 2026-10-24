@@ -274,9 +274,11 @@ bool runCommand(const Command& c, bool first, u64 since) {
     // ---- getting into the game ----
     if (v == "start") {
         // start load [slot 0..2] | start new [slot]: the title and the file select, driven by what they show.
+        // start fileselect: only as far as the file list (the cursor on the first slot), for the screens a new file leads to (start fileselect SLOT: the cursor on that slot).
+        const bool toList = !a.empty() && lower(a[0]) == "fileselect";
         const bool fresh = !a.empty() && lower(a[0]) == "new";
         const int slot = int(num(a, 1, 0));
-        if (first) log("start %s, slot %d", fresh ? "new" : "load", slot);
+        if (first) log("start %s, slot %d", toList ? "fileselect" : fresh ? "new" : "load", slot);
         if (timedOut(fresh ? 12000 : 6000, "the game did not start")) return true;
         const bool event = mem_read8(cpu(), kEventMode) != 0;
         if (loc.scene_proc == BLUEWAKE_SCENE_PLAY && loc.has_player && (!fresh || (!event && safe)))
@@ -291,6 +293,7 @@ bool runCommand(const Command& c, bool first, u64 since) {
                 press(loc.fs_slot < slot ? kDown : kUp, 8, 20);
                 return false;
             }
+            if (toList) return true;  // (the cursor is on the slot)
             press(kA, 8, 70);
             return false;
         }
@@ -352,6 +355,29 @@ bool runCommand(const Command& c, bool first, u64 since) {
             return false;
         }
         return (placed && stageName() == a[0] && loc.room == num(a, 1, 0)) || timedOut(5400, "the teleport did not arrive");
+    }
+    if (v == "giveitem") {
+        // giveitem ITEM: a field item (number as the Dev Tools console's `items` shows, 0x07 a Piece of Heart) made at Link's feet and put
+        // into the game's get-item state, as a chest or a person gives one: Link holds it up, the item-get message box runs
+        // (needs BLUEWAKE_TEST_BUNNY=1: it is the Bunny Hood's give, host side)
+        if (a.empty()) return log("line %d: giveitem ITEM", c.line), true;
+        if (!safe) return timedOut(3600, "no playable moment to give an item");
+        if (!bluewake_bunny_hood_give_item(unsigned(std::strtoul(a[0].c_str(), nullptr, 0))))
+            log("line %d: giveitem needs BLUEWAKE_TEST_BUNNY=1", c.line);
+        else log("giveitem %s", a[0].c_str());
+        return true;
+    }
+    if (v == "gyro") {
+        // gyro PITCH YAW | gyro off: a constant synthetic gyro turn in degrees a second (up and left positive), as BLUEWAKE_TEST_GYRO
+        if (first && !a.empty() && lower(a[0]) == "mode") {
+            bod::gyroTestMode(int(num(a, 1, 0)));
+            log("gyro mode %d", int(num(a, 1, 0)));
+        } else if (first) {
+            const bool off = a.empty() || lower(a[0]) == "off";
+            bod::gyroTestSet(off ? 0.f : std::strtof(a[0].c_str(), nullptr), off || a.size() < 2 ? 0.f : std::strtof(a[1].c_str(), nullptr), !off);
+            log("gyro %s", off ? "off" : (a[0] + " " + (a.size() > 1 ? a[1] : std::string("0"))).c_str());
+        }
+        return true;
     }
     if (v == "menu") {
         // menu HEADER/PAGE | menu close: the Boat of Daphnes menu, opened on a page (a window the UI thread draws)

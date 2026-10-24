@@ -1838,6 +1838,15 @@ bool bluewake_bunny_hood_give(void) {
     return true;
 }
 
+// Testing (a scenario's `giveitem 0x07`): any field item given the same way, as a chest or an NPC gives one.
+bool bluewake_bunny_hood_give_item(unsigned item) {
+    if (!g_enabled)
+        return false;
+    g_give_item = item;
+    g_give_request = 1;
+    return true;
+}
+
 // Testing (Dev Tools console `spawn NAME [params] [distance]`): an actor made by its profile name a few units in
 // front of Link, facing him, so a model or a recolour is checked by looking at it (C-up), wherever the game
 // would normally show it. fopAcM_create(name, params, pos, room, angle, scale, createFunc).

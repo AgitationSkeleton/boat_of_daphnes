@@ -1,4 +1,4 @@
-description Gyro aiming per mode: a constant synthetic gyro turn (up 30 and left 40 deg/s) must turn the aim with the hookshot, grappling hook, boomerang, telescope and Picto Box, and do nothing while walking
+description Gyro aiming per mode: a constant synthetic gyro turn (up 30 and left 40 deg/s) must turn the aim with the hookshot, grappling hook, boomerang (X held), telescope and Picto Box, and do nothing while walking
 # BLUEWAKE_TEST_GYRO holds the turn from the first frame; the log's [gyro-test] lines (active flag, Link's facing, the camera's pitch ratio) are read between the markers.
 # The player status word at 0x803CA8D0: 0x4000 hookshot, 0x20000 rope, 0x80000 boomerang, 0x200000 telescope, 0x2000 first-person look.
 save 2-Pictobox
@@ -40,7 +40,7 @@ press B 10
 wait 60
 equip X boomerang
 wait 20
-press X 10
+hold X
 wait 90
 peek 0x803CA8D0/4 boomerang
 log GYRO boomerang begin

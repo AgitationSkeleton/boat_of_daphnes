@@ -1,0 +1,75 @@
+description Settings pages in a window: Controls (Gyro Aiming block), Network > Discord, General at 100 and 200 percent UI Scale (with a 150/75/200/100 drift check), the Classic theme at 150 percent
+# Captures only (look at shots/*.png); the pass condition is that every page opened and the run ended. `menu set NAME=VALUE`
+# changes a setting as the menu would, and the UI Scale rebuilds the font after it has held still for a quarter of a second.
+# (The tool takes a winshot when it reads the line from the log, a little after the game wrote it: each page is left alone
+# for a while after its winshot.)
+windowed
+size 1600x900
+save new
+timeout 900
+wait 150
+menu Settings/Controls
+wait 30
+menu set gTest.MenuScroll=900
+wait 120
+winshot controls
+wait 60
+menu set gTest.MenuScroll=0
+wait 200
+menu Network/Discord
+wait 120
+winshot discord
+wait 200
+menu Settings/General
+wait 120
+winshot general_100
+wait 200
+menu set gSettings.UIScale=200
+wait 180
+winshot general_200
+wait 200
+menu Settings/Controls
+wait 30
+menu set gTest.MenuScroll=900
+wait 120
+winshot controls_200
+wait 60
+menu set gTest.MenuScroll=0
+wait 200
+menu Network/Discord
+wait 120
+winshot discord_200
+wait 200
+menu set gSettings.UIScale=150
+wait 120
+menu Settings/General
+wait 120
+winshot general_150
+wait 200
+menu set gSettings.UIScale=75
+wait 180
+winshot general_75
+wait 200
+menu set gSettings.UIScale=200
+wait 180
+menu set gSettings.UIScale=100
+wait 180
+winshot general_100_again
+wait 200
+menu set gSettings.Menu.Style=1
+wait 20
+menu set gSettings.UIScale=150
+wait 180
+winshot classic_150
+wait 200
+menu Settings/Controls
+wait 120
+winshot classic_controls_150
+wait 200
+menu Network/Discord
+wait 120
+winshot classic_discord_150
+wait 200
+menu close
+log SETTINGS pages done
+expect \[script\] SETTINGS pages done

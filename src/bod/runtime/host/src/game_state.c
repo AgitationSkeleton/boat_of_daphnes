@@ -133,6 +133,7 @@ void bluewake_fs_pane(CPUState* cpu, u32 pane) {
 // are found through the J2DPane tree (JSUTree: the first child's link at +0xB0, each link's object at +0 and next link at +0xC).
 static atomic_bool g_fs_cover_want;
 static u32 g_fs_covered_root;
+static u32 g_fs_covered_prompts;  // the game's corner prompts, while hidden
 void bluewake_fs_cover(bool on) { atomic_store(&g_fs_cover_want, on); }
 
 static u32 fs_find_root(CPUState* cpu, u32 fs) {
@@ -361,6 +362,7 @@ void bluewake_game_state_retrace(CPUState* cpu) {
         if (now.scene_proc != BLUEWAKE_SCENE_NAME) {
             g_fs_pane_count = 0;  // no stale pane pointers outside the file select
             g_fs_covered_root = 0u;
+            g_fs_covered_prompts = 0u;
         }
         if (now.scene_proc == BLUEWAKE_SCENE_NAME) {
             now.fs_main = (int)mem_read8(cpu, scene + SCN_MAIN_PROC);
@@ -398,6 +400,18 @@ void bluewake_game_state_retrace(CPUState* cpu) {
                             fprintf(stderr, "[fileselect] the list's panes are shown again\n");
                         } else if (root == 0u) {
                             g_fs_covered_root = 0u;
+                        }
+                    }
+                    {
+                        // The corner prompts (main_parts_fileselect.blo: dScnName_c::btnIcon.scr at +0x418) are the game's own;
+                        // the screens drawn over the list draw theirs too (rando_flow.cpp corner_prompts), which the window
+                        // widening has moved apart from the game's: two "Choose" buttons (BR-0056). Hidden while those are up.
+                        const u32 prompts = mem_read32(cpu, scene + 0x418u);
+                        if (prompts >= 0x80000000u && prompts < 0x81800000u) {
+                            if (want)
+                                mem_write8(cpu, prompts + 0xAAu, 0u), g_fs_covered_prompts = prompts;
+                            else if (g_fs_covered_prompts == prompts)
+                                mem_write8(cpu, prompts + 0xAAu, 1u), g_fs_covered_prompts = 0u;
                         }
                     }
                 }

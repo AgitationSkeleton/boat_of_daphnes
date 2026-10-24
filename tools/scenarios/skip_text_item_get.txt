@@ -1,0 +1,20 @@
+description BR-0062: with Skip Text on and B held, an item-get message box (a Piece of Heart picked up) closes and the event ends
+# (BLUEWAKE_TEST_BUNNY turns on the host's field-item give `giveitem` uses.) The item (0x07, a Piece of Heart) is made at Link's feet in the
+# get-item state, as a chest gives one: the get-item demo and its
+# message box run, B is held through them, and the event must end by itself.
+save 2-Pictobox
+cvar gEnhancements.SkipText 1
+env BLUEWAKE_TEST_BUNNY 1
+start load
+wait link
+giveitem 0x07
+wait event
+log SKIP item_get event started
+hold B
+wait noevent 1800
+release B
+log SKIP item_get event ended
+wait 60
+shot after_item_get
+expect \[script\] SKIP item_get event ended
+expect_not TIMEOUT
