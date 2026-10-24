@@ -115,10 +115,11 @@ int ask(SDL_Window* parent, SDL_MessageBoxFlags kind, const std::string& text, s
         SDL_SetRenderDrawColor(ren, 240, 240, 240, 255);
         SDL_RenderClear(ren);
         ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), ren);
-        SDL_RenderPresent(ren);
-        if (const char* shot = std::getenv("BOD_TEST_SETUP_SHOT"); shot && wantHeight > 0) {  // (a test: save the dialog's picture)
+        static int s_frames = 0;  // (a test: save the dialog's picture, once its window has its size)
+        if (const char* shot = std::getenv("BOD_TEST_SETUP_SHOT"); shot && ++s_frames == 12) {
             if (SDL_Surface* img = SDL_RenderReadPixels(ren, nullptr)) SDL_SaveBMP(img, shot), SDL_DestroySurface(img), hit = -1;
         }
+        SDL_RenderPresent(ren);
         int w = 0, h = 0;
         SDL_GetWindowSize(win, &w, &h);
         if (hit == -2 && std::abs(h - wantHeight) > 2 && wantHeight > 0) SDL_SetWindowSize(win, w, wantHeight);
