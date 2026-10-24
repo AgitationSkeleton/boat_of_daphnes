@@ -1,0 +1,150 @@
+# Builds the Linux program, packages the release tarball (boat-of-daphnes-<version>-linux-x86_64.tar.gz) and uploads it.
+# No disc, no game code: the game's modules are built on each player's PC at first start, and the job fails if anything made
+# from a disc is in the release (tools/linux/package.py). It also checks, on the one file that needs no disc (src/game/glue.cpp),
+# that the bundled compiler builds a game module the way the first start does and that the program exports what a module
+# binds to (tools/linux/toolchain_selftest.sh).
+#
+# Starts on a push to main, on a version tag and by hand (CI minutes are limited). The dependency builds are cached: ccache for
+# every compiled file, and the fetched sources (Aurora's SDL3, fmt, abseil, imgui, the prebuilt Dawn) in .deps.
+name: Linux
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Program and release (Ubuntu 24.04, clang 18)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPRESS: "1"
+      CCACHE_MAXSIZE: 2G
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0  # (tools/package.sh names the release from git describe)
+
+      - name: Install the build packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential g++-13 libstdc++-13-dev ninja-build ccache pkg-config python3 git binutils \
+            clang-18 lld-18 \
+            libssl-dev libudev-dev zlib1g-dev libpng-dev libfreetype-dev \
+            libwayland-dev libxkbcommon-dev libx11-xcb-dev libx11-dev libxrandr-dev libxext-dev libxi-dev libxcursor-dev \
+            libxss-dev libxtst-dev libgl1-mesa-dev libvulkan-dev libasound2-dev libpulse-dev libdbus-1-dev
+          cmake --version
+          clang-18 --version
+
+      - name: Restore the caches
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ github.ref_name }}-
+            ccache-
+      - name: Restore the fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            .deps
+            build/linux/llvm
+          key: deps-${{ hashFiles('extern/aurora/CMakeLists.txt', 'extern/aurora/cmake/**', 'tools/linux/fetch_llvm.py') }}
+          restore-keys: |
+            deps-
+
+      - name: Configure
+        run: |
+          set -euo pipefail
+          ccache --zero-stats
+          # clang 18 cannot read the runner's default libstdc++ 14 headers (std::function), so it is pointed at 13's.
+          gcc13="--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13"
+          cmake --preset linux-clang \
+            -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            "-DCMAKE_C_FLAGS=$gcc13" "-DCMAKE_CXX_FLAGS=$gcc13" \
+            "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld" "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld" \
+            -DBOD_STATIC_STDLIB=ON \
+            -DFETCHCONTENT_BASE_DIR="$GITHUB_WORKSPACE/.deps"
+
+      - name: Build the program
+        run: |
+          set -o pipefail
+          # -k 0: keep going after a failure, so one run reports every broken file.
+          cmake --build --preset linux-clang --target tww -- -k 0 2>&1 | tee build.log
+
+      - name: Errors
+        if: failure()
+        run: |
+          ccache --show-stats || true
+          grep -E "error:|FAILED:|undefined reference|ld.lld: error" build.log | head -300 || true
+
+      - name: No game data in the build
+        run: |
+          set -euo pipefail
+          test -f build/linux-clang/boat-of-daphnes
+          if find build -name 'tww_game*' | grep -q .; then
+            echo "Unexpected game module in the build"
+            exit 1
+          fi
+          file build/linux-clang/boat-of-daphnes
+          ls -l build/linux-clang/boat-of-daphnes
+          # every library the program asks for is found (beside it, or on the system)
+          ldd build/linux-clang/boat-of-daphnes
+          ! ldd build/linux-clang/boat-of-daphnes | grep "not found"
+
+      - name: The randomizer runtime (python-build-standalone 3.12, wwrando, gclib)
+        run: |
+          set -euo pipefail
+          python3 tools/rando/rando_runtime.py
+          python3 tools/rando/rando_runtime.py --check
+
+      - name: The compiler the first start builds the game with
+        run: python3 tools/linux/fetch_llvm.py build/linux/llvm
+
+      - name: The compiler builds a game module and the program exports what it binds to
+        run: tools/linux/toolchain_selftest.sh build/linux/llvm build/linux-clang/boat-of-daphnes
+
+      - name: Package the release
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          case "$GITHUB_REF" in refs/tags/*) ;; *) version="$(git describe --tags --always 2>/dev/null || echo "$GITHUB_SHA" | cut -c1-8)" ;; esac
+          tools/package.sh --version "$version"
+          ls -l dist/*.tar.gz
+
+      - name: Check the tarball
+        run: |
+          set -euo pipefail
+          tar=$(ls dist/*.tar.gz)
+          tar -tzf "$tar" | head -50
+          # nothing made from a disc, nothing of the player's
+          # (wwrando's own patch files in rando/wwrando/asm are .rel files too: they are its sources, not the game's)
+          if tar -tzf "$tar" | grep -v '/rando/\(wwrando\|gclib\|site-packages\|python\)/' | grep -E '(^|/)(game|Save|saves|logs|Randomizer)/|tww_game|\.(iso|gcm|ciso|rvz|wia|rel|dol)$'; then
+            echo "game data in the release"; exit 1
+          fi
+          mkdir -p check && tar -xzf "$tar" -C check
+          check/boat-of-daphnes-*/tools/llvm/clang --version | head -1
+          check/boat-of-daphnes-*/rando/python/bin/python3 --version
+
+      - name: Upload the release
+        uses: actions/upload-artifact@v4
+        with:
+          name: boat-of-daphnes-linux-x86_64
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14

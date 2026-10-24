@@ -7,6 +7,7 @@
 #include "runtime/gx.h"
 #include "runtime/runtime.h"
 
+#include "platform/bod_platform.h"
 #include "win_settings.h"
 #include "launch_marker.h"
 
@@ -20,11 +21,15 @@
 #include <cstdlib>
 #include <filesystem>
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 extern "C" {
 bool bw_settings_menu_is_open(void);
@@ -39,29 +44,50 @@ namespace {
 void (*s_overlay)(void*) = nullptr;
 void* s_overlayUser = nullptr;
 std::atomic<bool> s_installed{false};
+void setEnv(const char* name, const std::string& value) {
+#if defined(_WIN32)
+    _putenv_s(name, value.c_str());
+#else
+    setenv(name, value.c_str(), 1);
+#endif
+}
 }  // namespace
 
 void hostSettings() {
     bw_settings_capture_environment();
+#if !defined(_WIN32)
+    // The program's folder is the working one (settings, saves/, logs/, mods/): a launcher or a shell may start it from anywhere.
+    {
+        std::error_code ec;
+        const std::filesystem::path exe = bodplat::ExeFolder();
+        if (access(exe.c_str(), W_OK) == 0) std::filesystem::current_path(exe, ec);
+    }
+    const std::string dir = std::filesystem::current_path().string() + "/";
+#else
     const std::string dir = std::filesystem::current_path().string() + "\\";
+#endif
     // Its game folder (BLUEWAKE_RELS_DIR's parent): game\ beside the program, where game\rando\ holds the
     // randomizer's disc and its logo (tools/rando/install_dev.py).
     if (!std::getenv("BLUEWAKE_RELS_DIR")) {
+#if defined(_WIN32)
         wchar_t exe[MAX_PATH];
         const DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
         const std::filesystem::path game = std::filesystem::path(std::wstring(exe, n)).parent_path() / "game" / "rels";
-        _putenv_s("BLUEWAKE_RELS_DIR", game.string().c_str());
+#else
+        const std::filesystem::path game = bodplat::ExeFolder() / "game" / "rels";
+#endif
+        setEnv("BLUEWAKE_RELS_DIR", game.string());
     }
     // Its data folder is the working one (settings, Save\): the seed generator writes Randomizer\ there too, where the
     // file select reads it (it otherwise writes beside the program).
-    if (!std::getenv("BLUEWAKE_DATA_DIR")) _putenv_s("BLUEWAKE_DATA_DIR", dir.c_str());
+    if (!std::getenv("BLUEWAKE_DATA_DIR")) setEnv("BLUEWAKE_DATA_DIR", dir);
     // Its card path (BLUEWAKE_CARD_PATH, its launcher's Save\GZLE01.card): this runtime's card (src/runtime/exi.cpp,
     // SA2_CARD or saves\MemoryCardA.raw). The randomizer keeps which files are a seed's beside it (rando_flow.cpp:
     // MemoryCardA.slots.json), so they stay randomizer files from one start to the next.
     if (!std::getenv("BLUEWAKE_CARD_PATH")) {
         const char* card = std::getenv("SA2_CARD");
         const std::filesystem::path path = std::filesystem::current_path() / (card ? card : "saves/MemoryCardA.raw");
-        _putenv_s("BLUEWAKE_CARD_PATH", path.string().c_str());
+        setEnv("BLUEWAKE_CARD_PATH", path.string());
     }
     bw_settings_load(dir.c_str());
 }
@@ -72,7 +98,7 @@ bool hostInstalled() { return s_installed; }
 // (win_settings: 600 healthy frames) or quits cleanly. A start that finds it still there - the last one died starting -
 // comes up in safe mode (bw_settings_load: no mods, no options, HLE audio).
 namespace {
-std::string launchMarker() { return std::filesystem::current_path().string() + "\\launch.pending"; }
+std::string launchMarker() { return (std::filesystem::current_path() / "launch.pending").string(); }
 }
 void launchBegin() {
     if (!bw_launch_begin(launchMarker().c_str())) std::fprintf(stderr, "[safe-mode] could not create the launch marker\n");

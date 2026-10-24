@@ -106,12 +106,18 @@ const unsigned bluewake_emibios_size = ${_emibios_size}u;
 file(COPY_FILE ${CMAKE_CURRENT_BINARY_DIR}/emibios_data.c.tmp ${CMAKE_CURRENT_BINARY_DIR}/emibios_data.c ONLY_IF_DIFFERENT)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${BOD_DIR}/third_party/emibios/gba_bios.bin)
 set(BOD_UI_SOURCES
-    win_settings.cpp input_editor.cpp gba_window.cpp adapter_driver.cpp dev_windows.cpp ship_menu.cpp ship_menu_classic.cpp
+    win_settings.cpp input_editor.cpp gba_window.cpp dev_windows.cpp ship_menu.cpp ship_menu_classic.cpp
     cosmetics_editor.cpp link_colors.cpp model_colors.cpp gx_texture.cpp png_decode.cpp anchor.cpp
     anchor_client.cpp anchor_content.cpp item_found.cpp notifications.cpp item_tracker.cpp mods.cpp rarc.cpp
     hud_colors.cpp randomizer_menu.cpp rando_pack.cpp rando_saves.cpp rando_flow.cpp fs_art.cpp fs_blo.cpp
-    fs_font.cpp win_crash.cpp anchor_carry.cpp check_tracker.cpp input_viewer.cpp player_parts.cpp content_validate.cpp
-    voice_bank.cpp platform/platform_win32.cpp gb_browser.cpp)
+    fs_font.cpp anchor_carry.cpp check_tracker.cpp input_viewer.cpp player_parts.cpp content_validate.cpp
+    voice_bank.cpp gb_browser.cpp)
+# What differs per operating system (platform/bod_platform.h): the platform layer, the crash reporter, the GameCube adapter.
+if (WIN32)
+    list(APPEND BOD_UI_SOURCES win_crash.cpp adapter_driver.cpp platform/platform_win32.cpp)
+else ()
+    list(APPEND BOD_UI_SOURCES linux_crash.cpp platform/adapter_driver_linux.cpp platform/platform_posix.cpp platform/net_posix.cpp)
+endif ()
 list(TRANSFORM BOD_UI_SOURCES PREPEND ${BOD_DIR}/windows/src/)
 set(BOD_HOST_SOURCES dev_tools.c game_state.c cosmetics.c fast_load.c quick_doors.c treasure_glow.c forest_water.c
     gc_adapter.c gc_adapter_proto.c pad_wire.c haptics.c
@@ -119,25 +125,57 @@ set(BOD_HOST_SOURCES dev_tools.c game_state.c cosmetics.c fast_load.c quick_door
     voice_pitch.c audio_volume.c autosave.c puppet_pvp.c puppet_carry.c bunny_hood.c chart_reveal.c text_swap.c
     text_speed.c jabun_guard.c switch_sync.c)
 list(TRANSFORM BOD_HOST_SOURCES PREPEND ${BOD_DIR}/runtime/host/src/)
-add_library(bod_ui STATIC ${BOD_UI_SOURCES} ${BOD_HOST_SOURCES} ${BOD_DIR}/runtime/host/src/ship/cvar.cpp
-    ${BOD_DIR}/windows/compat/bw_posix_compat.c ${BOD_DIR}/shim/bod_stubs.c ${BOD_DIR}/shim/rando_bridge.c ${BOD_DIR}/shim/guest_coro_sync.c ${CMAKE_CURRENT_BINARY_DIR}/emibios_data.c)
-target_include_directories(bod_ui PUBLIC
-    ${BOD_DIR}/windows/compat/include ${BOD_DIR}/windows/compat ${BOD_DIR}/runtime/host/src ${BOD_DIR}/include
-    ${BOD_DIR}/windows/src)
-target_compile_options(bod_ui PRIVATE /FI${BOD_DIR}/windows/compat/bw_posix_compat.h /FI${BOD_DIR}/shim/bod_compat.h $<$<COMPILE_LANGUAGE:CXX>:/EHsc>
-    -Wno-unused-function -Wno-unused-variable)
-target_compile_definitions(bod_ui PRIVATE BLUEWAKE_WINDOWS=1 BLUEWAKE_APP_NAME="Boat-Of-Daphnes"
-    BLUEWAKE_ENABLE_DEVELOPER_TRACING=0 BLUEWAKE_EDGE_CENSUS=0 _CRT_SECURE_NO_WARNINGS NOMINMAX)
+if (WIN32)
+    set(BOD_COMPAT_SOURCES ${BOD_DIR}/windows/compat/bw_posix_compat.c)
+endif ()
+add_library(bod_ui STATIC ${BOD_UI_SOURCES} ${BOD_COMPAT_SOURCES} ${BOD_HOST_SOURCES} ${BOD_DIR}/runtime/host/src/ship/cvar.cpp
+    ${BOD_DIR}/shim/bod_stubs.c ${BOD_DIR}/shim/rando_bridge.c ${BOD_DIR}/shim/guest_coro_sync.c ${CMAKE_CURRENT_BINARY_DIR}/emibios_data.c)
+target_include_directories(bod_ui PUBLIC ${BOD_DIR}/runtime/host/src ${BOD_DIR}/include ${BOD_DIR}/windows/src)
+if (WIN32)
+    # (the POSIX headers a Windows build lacks: unistd.h, pthread.h, dirent.h ...)
+    target_include_directories(bod_ui PUBLIC ${BOD_DIR}/windows/compat/include ${BOD_DIR}/windows/compat)
+endif ()
+if (WIN32)
+    target_compile_options(bod_ui PRIVATE /FI${BOD_DIR}/windows/compat/bw_posix_compat.h /FI${BOD_DIR}/shim/bod_compat.h
+        $<$<COMPILE_LANGUAGE:CXX>:/EHsc> -Wno-unused-function -Wno-unused-variable)
+    target_compile_definitions(bod_ui PRIVATE BLUEWAKE_WINDOWS=1 BLUEWAKE_APP_NAME="Boat-Of-Daphnes"
+        BLUEWAKE_ENABLE_DEVELOPER_TRACING=0 BLUEWAKE_EDGE_CENSUS=0 _CRT_SECURE_NO_WARNINGS NOMINMAX)
+else ()
+    # Linux has the POSIX calls the sources use (bw_posix_compat.c is the Windows shim for them: not built here).
+    target_compile_options(bod_ui PRIVATE -include ${BOD_DIR}/shim/bod_compat.h -Wno-unused-function -Wno-unused-variable
+        # (a function that only calls itself is always a mistake here: a wrapper that forgot its real call hung the game)
+        $<$<COMPILE_LANGUAGE:C,CXX>:-Werror=infinite-recursion>)
+    target_compile_definitions(bod_ui PRIVATE BLUEWAKE_LINUX=1 BLUEWAKE_APP_NAME="Boat-Of-Daphnes"
+        BLUEWAKE_ENABLE_DEVELOPER_TRACING=0 BLUEWAKE_EDGE_CENSUS=0 _GNU_SOURCE)
+endif ()
 # (gba_link.c: windows.h without the old winsock.h, which clashes with the winsock2.h mGBA's headers include)
 set_source_files_properties(${BOD_DIR}/runtime/host/src/gba_link.c PROPERTIES COMPILE_DEFINITIONS WIN32_LEAN_AND_MEAN)
 target_link_libraries(bod_ui PRIVATE aurora::core aurora::gx aurora::pad imgui xxhash bluewake_archive mgba)
 if (WIN32)
     target_link_libraries(bod_ui PRIVATE winmm bcrypt comctl32 comdlg32 winhttp setupapi shell32 ole32)
+else ()
+    # The platform layer's sockets and TLS (Anchor, the model browser's downloads) use the system's OpenSSL.
+    find_package(OpenSSL REQUIRED)
+    target_link_libraries(bod_ui PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads ${CMAKE_DL_LIBS} m)
 endif ()
 
 
 # ---- The program (tww): the runtime. It loads tww_game.dll, the game's code built from the disc ---
 set(TWW_ICON_INC ${CMAKE_BINARY_DIR}/generated/app_icon.inc)
+if (NOT WIN32)
+    # The window's icon on Linux (src/runtime/appicon.h): the PNG compiled in, as the GBA BIOS above. Windows takes it from
+    # the program's resources.
+    file(READ ${BOD_DIR}/windows/resources/BlueWake.png _icon_hex HEX)
+    string(LENGTH "${_icon_hex}" _icon_hex_len)
+    math(EXPR _icon_size "${_icon_hex_len} / 2")
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _icon_c "${_icon_hex}")
+    file(WRITE ${TWW_ICON_INC}.tmp "/* generated from src/bod/windows/resources/BlueWake.png */
+static const unsigned char kAppIconPng[] = {${_icon_c}};
+static const unsigned long kAppIconPngSize = ${_icon_size}ul;
+")
+    file(COPY_FILE ${TWW_ICON_INC}.tmp ${TWW_ICON_INC} ONLY_IF_DIFFERENT)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${BOD_DIR}/windows/resources/BlueWake.png)
+endif ()
 file(GLOB RUNTIME_SOURCES CONFIGURE_DEPENDS src/runtime/*.cpp)
 # First-run setup (src/setup): the game's code built from the player's disc inside the program, with the files it
 # compiles the module with embedded.
@@ -160,6 +198,13 @@ target_link_libraries(tww PRIVATE aurora::core aurora::gx aurora::vi aurora::pad
 target_include_directories(tww PRIVATE ${CMAKE_SOURCE_DIR}/extern/aurora/lib)
 if (UNIX)
     target_link_libraries(tww PRIVATE ${CMAKE_DL_LIBS})
+endif ()
+if (UNIX AND NOT APPLE)
+    # The release asks nothing of the player's libstdc++ (the game's modules are freestanding and never see it).
+    option(BOD_STATIC_STDLIB "Link libstdc++ and libgcc into the program" OFF)
+    if (BOD_STATIC_STDLIB)
+        target_link_options(tww PRIVATE -static-libstdc++ -static-libgcc)
+    endif ()
 endif ()
 if (WIN32)
     add_custom_command(TARGET tww POST_BUILD
@@ -206,14 +251,22 @@ endif ()
 # --out build/gen_rando.
 set(TWW_GEN_RANDO_DIR "${CMAKE_SOURCE_DIR}/build/gen_rando" CACHE PATH "Recompiler output of the randomizer variant")
 file(GLOB TWW_GEN_RANDO_SOURCES CONFIGURE_DEPENDS ${TWW_GEN_RANDO_DIR}/*.cpp)
-if (TWW_GEN_RANDO_SOURCES AND WIN32)
+if (TWW_GEN_RANDO_SOURCES)
     add_library(tww_game_rando SHARED ${TWW_GEN_RANDO_SOURCES} src/game/glue.cpp)
     target_include_directories(tww_game_rando PRIVATE src ${TWW_GEN_RANDO_DIR})
     # (its overrides enter the runtime by their own name: the runtime tells the two modules' slot numbers apart)
     target_compile_definitions(tww_game_rando PRIVATE SA2B_GAME_DLL runOverride=runOverrideRando)
-    target_compile_options(tww_game_rando PRIVATE /O2 /clang:-g0 /clang:-ffreestanding /GS- /Zl /GR- /EHs-c-
-        -Wno-unused-label -Wno-unused-variable -Wno-unused-but-set-variable)
-    target_link_options(tww_game_rando PRIVATE /NOENTRY /NODEFAULTLIB)
-    target_link_libraries(tww_game_rando PRIVATE tww)
-    set_target_properties(tww_game_rando PROPERTIES MSVC_RUNTIME_LIBRARY "")
+    if (WIN32)
+        target_compile_options(tww_game_rando PRIVATE /O2 /clang:-g0 /clang:-ffreestanding /GS- /Zl /GR- /EHs-c-
+            -Wno-unused-label -Wno-unused-variable -Wno-unused-but-set-variable)
+        target_link_options(tww_game_rando PRIVATE /NOENTRY /NODEFAULTLIB)
+        target_link_libraries(tww_game_rando PRIVATE tww)
+        set_target_properties(tww_game_rando PROPERTIES MSVC_RUNTIME_LIBRARY "")
+    else ()
+        target_compile_options(tww_game_rando PRIVATE -O2 -g0 -ffreestanding -fno-exceptions -fno-rtti -fno-threadsafe-statics
+            -fvisibility=hidden -Wno-unused-label -Wno-unused-variable -Wno-unused-but-set-variable)
+        target_link_options(tww_game_rando PRIVATE -nostdlib -Wl,-Bsymbolic)
+        set_target_properties(tww_game_rando PROPERTIES PREFIX "")
+        add_dependencies(tww_game_rando tww)
+    endif ()
 endif ()

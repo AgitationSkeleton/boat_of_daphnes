@@ -23,6 +23,22 @@ Press **F1** (or **Esc**) for the menu. Settings, saves, mods and logs live besi
 
 You need Windows 10 or 11, a GPU with Direct3D 12 or Vulkan, and a CPU with AVX2.
 
+### Linux
+
+1. Download `boat-of-daphnes-<version>-linux-x86_64.tar.gz` from the [Releases](../../releases) page and unpack it
+   anywhere you can write to (not `/usr` or `/opt`: the first start puts the game beside the program).
+2. Run `./boat-of-daphnes` and pick your disc image when it asks. The first start builds the game and the randomizer
+   from your disc, with the compiler in the download (`tools/llvm`): you do not install one. It happens once.
+3. Optional: `./install-menu-entry.sh` adds it to your application menu; for the GameCube adapter, copy
+   `51-gcadapter.rules` to `/etc/udev/rules.d/` and replug it.
+
+You need a 64-bit Linux with glibc 2.38 or newer (Ubuntu 24.04, Debian 13, Fedora 39, current Arch and SteamOS), a CPU
+with AVX2, a Vulkan driver (Mesa or NVIDIA), and these libraries, which every desktop has: libSDL3's own dependencies
+(X11 or Wayland, ALSA/PulseAudio/PipeWire), `libssl3`, `libpng16`, `libfreetype6`, `libxml2` (for the bundled linker;
+without it the setup uses your own `clang` and `ld.lld`/`lld` if installed). The disc chooser uses your desktop's file
+dialog (an XDG portal, or `zenity`); `--iso FILE` skips it. Settings, saves, mods and logs live beside the program as on
+Windows.
+
 ## What's in it
 
 ### Smooth motion and a modern picture
@@ -140,6 +156,31 @@ that environment.) This builds `build\windows-clang\boat-of-daphnes.exe`. Aurora
   `rando_runtime.py`; the compiler comes from Visual Studio's own LLVM unless `-Llvm <folder>` says otherwise). It carries the program, the
   bundled compiler the first start builds the game with, and the randomizer's generator, and it refuses to include
   anything made from a disc.
+
+### Linux
+
+Needs clang 17 or newer, CMake 3.25+, Ninja, Git, Python 3, and the development packages below (Ubuntu 24.04 names).
+
+~~~sh
+sudo apt install git cmake ninja-build clang lld python3 pkg-config g++-13 libstdc++-13-dev libssl-dev libudev-dev \
+    zlib1g-dev libpng-dev libfreetype-dev libwayland-dev libxkbcommon-dev libx11-dev libx11-xcb-dev libxrandr-dev \
+    libxext-dev libxi-dev libxcursor-dev libxss-dev libxtst-dev libgl1-mesa-dev libvulkan-dev libasound2-dev \
+    libpulse-dev libdbus-1-dev
+git clone --recursive https://github.com/AgitationSkeleton/boat_of_daphnes
+cd boat_of_daphnes
+cmake --preset linux-clang -DCMAKE_C_FLAGS=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13 \
+    -DCMAKE_CXX_FLAGS=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13
+cmake --build --preset linux-clang --target tww
+~~~
+
+(The `--gcc-install-dir` flags point clang 18 and older at gcc 13's C++ headers, which they can read; with clang 19 or
+newer leave them out.) This builds `build/linux-clang/boat-of-daphnes` and `libSDL3.so.0` beside it. Configure with
+`-DBOD_STATIC_STDLIB=ON` to link libstdc++ into the program, as the release does. `python3 tools/rando/rando_runtime.py`
+fetches the randomizer's generator (python-build-standalone, wwrando, gclib), `python3 tools/rando/install_dev.py` sets
+up the extras beside the program for development, and `tools/package.sh --version <version>` makes
+`dist/boat-of-daphnes-<version>-linux-x86_64.tar.gz` with the compiler (LLVM's release of clang and lld, fetched and
+checked against a pinned hash) and the generator. `tools/linux/toolchain_selftest.sh tools/llvm build/linux-clang/boat-of-daphnes`
+checks that the bundled compiler builds the game module's glue and that the program exports what a module binds to.
 
 How it works, in short: `src/recompiler` translates the game's PowerPC code (`main.dol` and its 415 modules) to C++,
 which is compiled into `tww_game.dll`; `src/runtime` is the console: CPU state, the OS and hardware replacements, the

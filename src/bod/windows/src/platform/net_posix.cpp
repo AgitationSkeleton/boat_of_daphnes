@@ -340,11 +340,150 @@ bool read_headers(Stream& s, std::string* head, std::string* rest, int timeout_m
 
 // --- HTTP -------------------------------------------------------------------------------------------------------
 
-// (the player model browser's downloads: not on this system yet)
-bool HttpDownload(const std::string&, const std::string&, const std::function<bool(uint64_t, uint64_t)>&, std::string* error) {
-    if (error)
-        *error = "downloads are not supported on this system yet";
-    return false;
+// A GET of url streamed to a file (the player model browser's downloads), redirects followed (GameBanana's files come from
+// another host), progress reported as the body arrives. https and http; chunked or with a length.
+bool HttpDownload(const std::string& url_text, const std::string& path, const std::function<bool(uint64_t, uint64_t)>& progress,
+                  std::string* error) {
+    auto failed = [&](const char* why) {
+        if (error)
+            *error = why;
+        std::remove(path.c_str());
+        return false;
+    };
+    std::string current = url_text;
+    for (int hops = 0; hops < 8; ++hops) {
+        // base ("https://host:port") and the rest ("/path?query")
+        const size_t scheme = current.find("://");
+        if (scheme == std::string::npos)
+            return failed("not a URL");
+        size_t slash = current.find('/', scheme + 3);
+        const std::string base = current.substr(0, slash == std::string::npos ? current.size() : slash);
+        std::string object = slash == std::string::npos ? "/" : current.substr(slash);
+        const size_t fragment = object.find('#');
+        if (fragment != std::string::npos)
+            object.resize(fragment);
+        Url url;
+        if (!parse_base(base, &url))
+            return failed("not a URL");
+        Stream s;
+        std::string what;
+        unsigned long code = 0;
+        if (!s.Open(url.host, url.port, url.secure, 10000, &what, &code))
+            return failed("the server did not answer");
+        std::string request = "GET " + object + " HTTP/1.1\r\nHost: " + url.host;
+        if (url.port != (url.secure ? 443 : 80))
+            request += ":" + std::to_string(url.port);
+        request += "\r\nUser-Agent: BoatOfDaphnes (The Wind Waker PC port; player model browser)\r\nAccept: */*\r\n"
+                   "Connection: close\r\n\r\n";
+        if (!s.WriteAll(request.data(), request.size()))
+            return failed("the server did not answer");
+        std::string head, rest;
+        if (!read_headers(s, &head, &rest, 30000))
+            return failed("the server did not answer");
+        int status = 0;
+        if (std::sscanf(head.c_str(), "HTTP/%*d.%*d %d", &status) != 1)
+            return failed("the server did not answer");
+        const size_t line_end = head.find("\r\n");
+        const std::string fields = line_end == std::string::npos ? std::string() : head.substr(line_end + 2);
+        if (status >= 300 && status < 400) {
+            std::string location = header_value(fields, "Location");
+            if (location.empty())
+                return failed("the server refused the file");
+            if (location.rfind("http://", 0) == 0 || location.rfind("https://", 0) == 0)
+                current = location;
+            else if (location[0] == '/')
+                current = base + location;
+            else
+                current = base + object.substr(0, object.rfind('/') + 1) + location;
+            continue;
+        }
+        if (status != 200)
+            return failed("the server refused the file");
+        const bool chunked = lower(header_value(fields, "Transfer-Encoding")).find("chunked") != std::string::npos;
+        const std::string length_text = header_value(fields, "Content-Length");
+        const uint64_t total = (!chunked && !length_text.empty()) ? std::strtoull(length_text.c_str(), nullptr, 10) : 0;
+        FILE* f = std::fopen(path.c_str(), "wb");
+        if (f == nullptr)
+            return failed("the file could not be made");
+        uint64_t got = 0;
+        const char* why = nullptr;
+        std::string pending = rest;  // bytes read and not yet used
+        char chunk[1 << 16];
+        auto more = [&]() {
+            const long n = s.Read(chunk, sizeof chunk, 30000);
+            if (n <= 0)
+                return false;
+            pending.append(chunk, static_cast<size_t>(n));
+            return true;
+        };
+        auto put = [&](const char* data, size_t n) {
+            if (std::fwrite(data, 1, n, f) != n) {
+                why = "the file could not be written (is the drive full?)";
+                return false;
+            }
+            got += n;
+            if (progress && !progress(got, total)) {
+                why = "cancelled";
+                return false;
+            }
+            return true;
+        };
+        if (chunked) {
+            for (;;) {
+                size_t eol;
+                while ((eol = pending.find("\r\n")) == std::string::npos)
+                    if (!more()) {
+                        why = "the download broke off";
+                        break;
+                    }
+                if (why)
+                    break;
+                const unsigned long size = std::strtoul(pending.c_str(), nullptr, 16);
+                pending.erase(0, eol + 2);
+                if (size == 0)
+                    break;
+                size_t left = size;
+                while (left > 0 && !why) {
+                    if (pending.empty() && !more()) {
+                        why = "the download broke off";
+                        break;
+                    }
+                    const size_t take = std::min(left, pending.size());
+                    if (!put(pending.data(), take))
+                        break;
+                    pending.erase(0, take);
+                    left -= take;
+                }
+                while (!why && pending.size() < 2)
+                    if (!more())
+                        why = "the download broke off";
+                if (why)
+                    break;
+                pending.erase(0, 2);
+            }
+        } else {
+            if (!pending.empty() && !put(pending.data(), pending.size()))
+                pending.clear();
+            while (!why) {
+                if (total != 0 && got >= total)
+                    break;
+                const long n = s.Read(chunk, sizeof chunk, 30000);
+                if (n == 0)
+                    break;
+                if (n < 0) {
+                    why = "the download broke off";
+                    break;
+                }
+                if (!put(chunk, static_cast<size_t>(n)))
+                    break;
+            }
+            if (!why && total != 0 && got != total)
+                why = "the download broke off";
+        }
+        std::fclose(f);
+        return why ? failed(why) : true;
+    }
+    return failed("too many redirects");
 }
 
 HttpResult HttpRequest(const std::string& base, const char* method, const std::string& path, const std::vector<uint8_t>* body,

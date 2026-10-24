@@ -68,14 +68,14 @@ bool loadGameModule(bool quiet, bool rando) {
     // (local: its own names - memcpy and the rest - stay its own; the runtime's are bound from the
     // program's exported symbols)
     if (access(path.c_str(), F_OK) != 0) {
-        error = "The game has not been set up on this computer yet. Start TWWLauncher: on its first run it builds the game "
+        error = "The game has not been set up on this computer yet. Start Boat of Daphnes: on its first run it builds the game "
                 "from your disc.";
         return fail();
     }
     void* m = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (!m) {  // (a function it needs that this runtime lacks, say)
         std::fprintf(stderr, "%s\n", dlerror());
-        error = "The game was set up by another version of this program. Start TWWLauncher to set it up again.";
+        error = "The game was set up by another version of this program. Start Boat of Daphnes to set it up again.";
         return fail();
     }
     get = reinterpret_cast<Fn>(dlsym(m, "sa2b_game_module"));
@@ -85,7 +85,7 @@ bool loadGameModule(bool quiet, bool rando) {
 #if defined(_WIN32)
         error = "The game was set up by another version of this program. Start TWWLauncher.exe to set it up again.";
 #else
-        error = "The game was set up by another version of this program. Start TWWLauncher to set it up again.";
+        error = "The game was set up by another version of this program. Start Boat of Daphnes to set it up again.";
 #endif
         return fail();
     }
@@ -121,7 +121,27 @@ bool loadSecondModule() {
     g_mods[1] = g;
     return true;
 #else
-    return false;
+    char exe[4096];
+    const ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    std::string path(exe, n > 0 ? size_t(n) : 0);
+    path = path.substr(0, path.find_last_of('/') + 1) + "tww_game_rando.so";
+    if (access(path.c_str(), F_OK) != 0) return false;
+    void* m = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (!m) {
+        std::fprintf(stderr, "[modswitch] %s\n", dlerror());
+        return false;
+    }
+    using Fn = const GameModule* (*)();
+    const Fn get = reinterpret_cast<Fn>(dlsym(m, "sa2b_game_module"));
+    const GameModule* g = get ? get() : nullptr;
+    if (!g || g->abi != kGameAbi) {
+        std::fprintf(stderr, "[modswitch] tww_game_rando.so was built for another version of the runtime\n");
+        return false;
+    }
+    *g->irqPending = 0;
+    *g->traceOn = *g_traceOnPtr;
+    g_mods[1] = g;
+    return true;
 #endif
 }
 

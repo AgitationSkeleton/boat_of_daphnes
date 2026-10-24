@@ -198,4 +198,42 @@ bool runFirstRun(const fs::path& exeDir, fs::path& disc, bool rememberedDisc) {
     return start;
 }
 
+int runFirstRunCli(const fs::path& exeDir, const fs::path& disc) {
+    std::string why;
+    if (disc.empty()) {
+        std::fprintf(stderr, "setup: no disc image (--iso FILE)\n");
+        return 2;
+    }
+    if (!FirstRun::looksRight(disc, why)) {
+        std::fprintf(stderr, "setup: %s\n", why.c_str());
+        return 2;
+    }
+    if (!FirstRun::needed(exeDir, disc)) {
+        std::printf("setup: the game is already built\n");
+        return 0;
+    }
+    FirstRun build;
+    build.start(exeDir, disc);
+    int step = -1;
+    float lastPrint = -100;
+    for (;; SDL_Delay(500)) {
+        const FirstRun::Status st = build.status();
+        if (st.done) {
+            std::printf("setup: done in %s\n", clock(st.elapsed).c_str());
+            return 0;
+        }
+        if ((st.failed || st.cancelled) && !build.running()) {
+            std::fprintf(stderr, "setup: failed: %s (setup.log has the details)\n", st.error.c_str());
+            return 1;
+        }
+        if (st.step != step || st.elapsed - lastPrint >= 60) {
+            std::printf("setup: %s, step %d of %d, %d%% (%s), %s\n", FirstRun::stepName(st.step), st.step + 1,
+                        st.rando ? int(FirstRun::kSteps) : int(FirstRun::RandoPatch), int(st.overall * 100), st.detail.c_str(),
+                        clock(st.elapsed).c_str());
+            std::fflush(stdout);
+            step = st.step, lastPrint = st.elapsed;
+        }
+    }
+}
+
 }  // namespace setup

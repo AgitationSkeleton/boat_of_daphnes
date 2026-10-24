@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
     hostTimingInit();
     std::string dolPath, isoPath;
     int watchSecs = 0;
-    bool headless = false, mute = std::getenv("SA2_MUTE") != nullptr;
+    bool headless = false, setupOnly = false, mute = std::getenv("SA2_MUTE") != nullptr;
     u64 maxFrames = 0;
     float volume = std::getenv("SA2_VOLUME") ? float(std::atof(std::getenv("SA2_VOLUME"))) / 100.f : 1.f;  // percent
     for (int i = 1; i < argc; i++) {
@@ -111,6 +111,7 @@ int main(int argc, char** argv) {
         else if (a == "--trace") g_traceOn = true;
         else if (a == "--watch" && i + 1 < argc) watchSecs = std::atoi(argv[++i]);
         else if (a == "--headless") headless = true;
+        else if (a == "--setup") setupOnly = true;  // build the game's code from the disc without a window, then exit
         else if (a == "--mute") mute = true;
         else if (a == "--volume" && i + 1 < argc) volume = float(std::atof(argv[++i])) / 100.f;
 #if defined(_WIN32)
@@ -123,6 +124,10 @@ int main(int argc, char** argv) {
     // Boat of Daphnes' settings first: they say whether this session is a randomizer one (its file select restarted
     // the game into it), which runs the randomizer's module on the randomizer's disc (game/rando/ beside the program).
     bod::hostSettings();
+    if (setupOnly) {
+        const std::string saved = bod::cvarString("gSettings.DiscPath", "");
+        return setup::runFirstRunCli(exeFolder(), std::filesystem::u8path(isoPath.empty() ? saved : isoPath));
+    }
     if (!headless) bod::launchBegin();
     // The disc: the command line's, else the one used before. The first time (or after an update), the game's code is
     // built from it before anything else (src/setup): the player only clicks the program.
@@ -141,7 +146,11 @@ int main(int argc, char** argv) {
         std::error_code ec;
         const std::filesystem::path plain = exeFolder() / "game" / "GZLE01.iso";
         const std::string seedDisc = std::filesystem::exists(plain, ec) ? plain.string() : isoPath;
+#if defined(_WIN32)
         if (!seedDisc.empty() && !std::getenv("BLUEWAKE_DISC")) _putenv_s("BLUEWAKE_DISC", seedDisc.c_str());
+#else
+        if (!seedDisc.empty()) setenv("BLUEWAKE_DISC", seedDisc.c_str(), 0);
+#endif
     }
     // The randomizer beside the game (game/rando/ and tww_game_rando.dll): both programs loaded, switched while the
     // game runs (src/runtime/modswitch.cpp). Without the function table, the file select restarts the game into it.

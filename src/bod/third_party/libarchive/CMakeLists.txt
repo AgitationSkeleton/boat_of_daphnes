@@ -28,9 +28,20 @@ list(TRANSFORM _la_sources PREPEND ${_la}/)
 add_library(bluewake_archive STATIC ${_la_sources})
 set_target_properties(bluewake_archive PROPERTIES C_STANDARD 99 C_EXTENSIONS ON)
 target_include_directories(bluewake_archive PUBLIC ${_la} PRIVATE ${CMAKE_CURRENT_LIST_DIR})
+# The Windows configuration uses CNG (bcrypt); the Linux one uses OpenSSL's libcrypto for the digests and encrypted entries.
+if(WIN32)
+    set(_la_config config_bluewake.h)
+else()
+    set(_la_config config_bluewake_linux.h)
+endif()
 target_compile_definitions(bluewake_archive
     PUBLIC LIBARCHIVE_STATIC
-    PRIVATE PLATFORM_CONFIG_H="config_bluewake.h")
+    PRIVATE PLATFORM_CONFIG_H="${_la_config}")
 # Third-party code: no warnings of ours, and none of the host's force-included headers.
 target_compile_options(bluewake_archive PRIVATE -w)
-target_link_libraries(bluewake_archive PUBLIC ZLIB::ZLIB LibLZMA::LibLZMA PRIVATE bcrypt)
+if(WIN32)
+    target_link_libraries(bluewake_archive PUBLIC ZLIB::ZLIB LibLZMA::LibLZMA PRIVATE bcrypt)
+else()
+    find_package(OpenSSL REQUIRED)
+    target_link_libraries(bluewake_archive PUBLIC ZLIB::ZLIB LibLZMA::LibLZMA PRIVATE OpenSSL::Crypto)
+endif()

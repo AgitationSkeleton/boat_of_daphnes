@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Fetch and verify the offline Python runtime that runs the Wind Waker Randomizer's seed generator.
 
-Output (all git-ignored, under build/windows/rando_runtime/):
+Output (all git-ignored, under build/windows/rando_runtime/ or, on Linux, build/linux/rando_runtime/; --runtime DIR
+chooses another folder):
 
-    python/         Python 3.12 embeddable package (python.org), with a ._pth that wires in the folders below
+    python/         Python 3.12: the embeddable package (python.org) with a ._pth on Windows, python-build-standalone's
+                    stripped install (astral-sh/python-build-standalone, bin/python3) with a .pth on Linux, either way
+                    wiring in the folders below
     site-packages/  pinned pure and binary wheels (ruamel.yaml, Pillow, numpy, ...) plus our imagequant stub
     wwrando/        the generator's sources, copied from a wwrando checkout (never committed here)
     gclib/          LagoLunatic/gclib at the commit wwrando's submodule pointed to (never committed here)
@@ -39,7 +42,8 @@ import zipfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-RUNTIME = REPO / "build" / "windows" / "rando_runtime"
+WINDOWS = sys.platform == "win32"
+RUNTIME = REPO / "build" / ("windows" if WINDOWS else "linux") / "rando_runtime"
 SHIMS = Path(__file__).resolve().parent / "shims"  # (this repo keeps its scripts/rando in tools/rando)
 
 # ---------------------------------------------------------------------------------------------------
@@ -49,11 +53,18 @@ SHIMS = Path(__file__).resolve().parent / "shims"  # (this repo keeps its script
 PYTHON_VERSION = "3.12.10"  # the last 3.12 with Windows binaries; wwrando needs 3.12 (3.14 breaks options/base_options.py)
 PYTHON_URL = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip"
 PYTHON_SHA256 = "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3"  # matches python.org's SPDX file
+# Linux x86-64: python-build-standalone (a relocatable CPython, PSF licence), 3.12 like the wheels below; the stripped
+# install_only build (about 34 MB). The SHA-256 is the release's own digest of the file.
+PBS_TAG = "20261003"
+PBS_VERSION = "3.12.15"
+PBS_URL = (f"https://github.com/astral-sh/python-build-standalone/releases/download/{PBS_TAG}/"
+           f"cpython-{PBS_VERSION}%2B{PBS_TAG}-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz")
+PBS_SHA256 = "731af898886c5f821890dc901eca3c651cca8e51fa7308c159d12a1194aeac91"
 
 # (name, version, filename, url, sha256, license). All are cp312 win_amd64 or pure-Python wheels.
 # gclib's requirements.txt at the pinned commit asks for cffi 1.17.1, imagequant 1.1.4, numpy 2.2.3,
 # pillow 11.1.0, pycparser 2.22. imagequant (and so cffi, pycparser) is replaced by a stub, see SHIMS.
-WHEELS = [
+WHEELS_WINDOWS = [
     ("ruamel.yaml", "0.18.16", "ruamel.yaml-0.18.16-py3-none-any.whl",
      "https://files.pythonhosted.org/packages/0f/73/bb1bc2529f852e7bf64a2dec885e89ff9f5cc7bbf6c9340eed30ff2c69c5/ruamel.yaml-0.18.16-py3-none-any.whl",
      "048f26d64245bae57a4f9ef6feb5b552a386830ef7a826f235ffb804c59efbba", "MIT"),
@@ -70,6 +81,21 @@ WHEELS = [
      "https://files.pythonhosted.org/packages/42/6e/55580a538116d16ae7c9aa17d4edd56e83f42126cb1dfe7a684da7925d2c/numpy-2.2.3-cp312-cp312-win_amd64.whl",
      "83807d445817326b4bcdaaaf8e8e9f1753da04341eceec705c001ff342002e5d", "BSD-3-Clause (+ bundled OpenBLAS/GCC runtime, see its LICENSE)"),
 ]
+# The same versions for Linux x86-64 (manylinux2014, glibc 2.17 and newer; cp312).
+WHEELS_LINUX = [
+    WHEELS_WINDOWS[0],
+    ("ruamel.yaml.clib", "0.2.12", "ruamel.yaml.clib-0.2.12-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+     "https://files.pythonhosted.org/packages/44/d0/3f68a86e006448fb6c005aee66565b9eb89014a70c491d70c08de597f8e4/ruamel.yaml.clib-0.2.12-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+     "95c3829bb364fdb8e0332c9931ecf57d9be3519241323c5274bd82f709cebc0c", "MIT"),
+    WHEELS_WINDOWS[2],
+    ("pillow", "11.1.0", "pillow-11.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+     "https://files.pythonhosted.org/packages/8c/aa/7f29711f26680eab0bcd3ecdd6d23ed6bce180d82e3f6380fb7ae35fcf3b/pillow-11.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+     "7fdadc077553621911f27ce206ffcbec7d3f8d7b50e0da39f10997e8e2bb7f6a", "MIT-CMU (HPND)"),
+    ("numpy", "2.2.3", "numpy-2.2.3-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+     "https://files.pythonhosted.org/packages/39/04/78d2e7402fb479d893953fb78fa7045f7deb635ec095b6b4f0260223091a/numpy-2.2.3-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+     "3b787adbf04b0db1967798dba8da1af07e387908ed1553a0d6e74c084d1ceafe", "BSD-3-Clause (+ bundled OpenBLAS/GCC runtime, see its LICENSE)"),
+]
+WHEELS = WHEELS_WINDOWS if WINDOWS else WHEELS_LINUX
 
 # wwrando snapshot: upstream LagoLunatic/wwrando commit 86b97db521989bf4626870f58fd99c862a46d1d3
 # (2025-12-06, "Update ruamel.yaml"), identified by comparing every file of the snapshot folder with the
@@ -212,14 +238,40 @@ def write_files(dest: Path, files: dict[str, bytes]) -> None:
 # Steps
 # ---------------------------------------------------------------------------------------------------
 
+# Linux: a .pth in the interpreter's site-packages (relative to it: rando/python/lib/python3.12/site-packages)
+PTH_LINUX = "../../../../site-packages\n../../../../wwrando\n../../../../gclib\n"
 PTH = "python312.zip\n.\n..\\site-packages\n..\\wwrando\n..\\gclib\nimport site\n"
 
 
+def python_exe() -> Path:
+    return RUNTIME / "python" / ("python.exe" if WINDOWS else "bin/python3")
+
+
+def step_python_linux(force: bool) -> None:
+    import tarfile
+    dest = RUNTIME / "python"
+    stamp = RUNTIME / ".stamp-python"
+    pth = dest / "lib" / "python3.12" / "site-packages" / "boat-of-daphnes.pth"
+    key = sha256_bytes((PBS_SHA256 + PTH_LINUX).encode())
+    if not force and stamp_ok(stamp, key, python_exe(), pth):
+        return
+    tpath = download(PBS_URL, RUNTIME / "downloads" / "python-build-standalone-linux-x86_64.tar.gz", PBS_SHA256)
+    if dest.exists():
+        shutil.rmtree(dest)
+    with tarfile.open(tpath) as t:
+        t.extractall(RUNTIME, filter="data")  # (the archive's top folder is python/)
+    pth.write_text(PTH_LINUX)
+    write_stamp(stamp, key)
+    log(f"python {PBS_VERSION} (python-build-standalone {PBS_TAG}) ready")
+
+
 def step_python(force: bool) -> None:
+    if not WINDOWS:
+        return step_python_linux(force)
     dest = RUNTIME / "python"
     stamp = RUNTIME / ".stamp-python"
     key = PYTHON_SHA256 + PTH
-    if not force and stamp_ok(stamp, sha256_bytes(key.encode()), dest / "python.exe", dest / "python312._pth"):
+    if not force and stamp_ok(stamp, sha256_bytes(key.encode()), python_exe(), dest / "python312._pth"):
         return
     zpath = download(PYTHON_URL, RUNTIME / "downloads" / Path(PYTHON_URL).name, PYTHON_SHA256)
     if dest.exists():
@@ -339,7 +391,7 @@ def step_wwrando(force: bool, src_arg: str | None) -> tuple[str, str]:
 
 
 def smoke_test() -> str:
-    py = RUNTIME / "python" / "python.exe"
+    py = python_exe()
     code = ("import sys; import randomizer; from version import VERSION; "
             "print(sys.version.split()[0], VERSION)")
     r = subprocess.run([str(py), "-c", code], cwd=RUNTIME / "wwrando", capture_output=True, text=True)
@@ -350,7 +402,8 @@ def smoke_test() -> str:
 
 def write_manifest(wwrando_digest: str, gclib_digest: str, origin: str, smoke: str) -> None:
     manifest = {
-        "python": {"version": PYTHON_VERSION, "url": PYTHON_URL, "sha256": PYTHON_SHA256},
+        "python": ({"version": PYTHON_VERSION, "url": PYTHON_URL, "sha256": PYTHON_SHA256} if WINDOWS else
+                   {"version": PBS_VERSION, "url": PBS_URL, "sha256": PBS_SHA256}),
         "wheels": [{"name": n, "version": v, "file": f, "sha256": s, "license": lic} for n, v, f, _u, s, lic in WHEELS],
         "shims": sorted(p.name for p in SHIMS.glob("*.py")),
         "wwrando": {"repo": WWRANDO_REPO, "commit": WWRANDO_COMMIT, "tree_sha256": wwrando_digest, "copied_from": origin,
@@ -364,7 +417,7 @@ def write_manifest(wwrando_digest: str, gclib_digest: str, origin: str, smoke: s
 def check() -> bool:
     """True when every step is current and the smoke test passes (no network)."""
     ok = True
-    for name, outs in [("python", ["python/python.exe"]), ("wheels", ["site-packages/ruamel", "site-packages/numpy"]),
+    for name, outs in [("python", [python_exe().relative_to(RUNTIME).as_posix()]), ("wheels", ["site-packages/ruamel", "site-packages/numpy"]),
                        ("shims", ["site-packages/imagequant.py"]), ("gclib", ["gclib/gclib/rarc.py"]),
                        ("wwrando", ["wwrando/randomizer.py"]), ("assets", ["wwrando/assets/Vscroll.arc"])]:
         if not (RUNTIME / f".stamp-{name}").is_file() or not all((RUNTIME / o).exists() for o in outs):
@@ -380,17 +433,19 @@ def check() -> bool:
 
 
 def main() -> int:
+    global RUNTIME
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--check", action="store_true", help="verify only (no network); exit 1 if the runtime is missing or stale")
     ap.add_argument("--force", action="store_true", help="redo every step")
     ap.add_argument("--wwrando-src", help="a wwrando checkout to copy from (must be the pinned revision)")
+    ap.add_argument("--runtime", help=f"the folder to make the runtime in (default {RUNTIME})")
     args = ap.parse_args()
+    if args.runtime:
+        RUNTIME = Path(args.runtime).resolve()
 
     if args.check:
         return 0 if check() else 1
 
-    if sys.platform != "win32":
-        raise SystemExit("rando_runtime.py fetches the Windows x64 embeddable Python; run it on Windows")
     RUNTIME.mkdir(parents=True, exist_ok=True)
     step_python(args.force)
     step_wheels(args.force)

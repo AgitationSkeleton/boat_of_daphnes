@@ -6,7 +6,8 @@
 //   2. Extract    main.dol and every code module (rels/ and RELS.arc: Yaz0, RARC)
 //   3. Recompile  the PowerPC code to C++ (src/recompiler, linked into the program)
 //   4. Compile    that C++ with the bundled clang (tools/llvm), one process per core
-//   5. Link       tww_game.dll with the bundled lld-link, against boat-of-daphnes.lib (the program's exports)
+//   5. Link       tww_game.dll with the bundled lld-link, against boat-of-daphnes.lib (the program's exports);
+//                 on Linux tww_game.so with ld.lld, which binds the program's exported names when it is loaded
 // and, when the randomizer's generator is beside the program (rando/), the same for wwrando's patched program:
 //   6. Patch      wwrando's reference run of the disc (its code, seed independent) to game/rando/GZLE99.iso
 //   7-10.         extracted, recompiled, compiled and linked as tww_game_rando.dll
@@ -21,6 +22,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace setup {
@@ -76,6 +78,8 @@ private:
     Status m_status;
     std::chrono::steady_clock::time_point m_t0;
     std::vector<std::filesystem::path> m_objects;
+    std::filesystem::path m_clang, m_linker;                    // the compiler and the linker (findTools)
+    std::vector<std::pair<std::string, std::string>> m_toolEnv;  // their environment, added to ours
 };
 
 }  // namespace setup

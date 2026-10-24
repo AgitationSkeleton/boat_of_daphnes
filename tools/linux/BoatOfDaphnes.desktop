@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Boat of Daphnes
+Comment=The Legend of Zelda: The Wind Waker on PC (built from your own disc)
+Exec=boat-of-daphnes
+Icon=boat-of-daphnes
+Categories=Game;
+StartupWMClass=BoatOfDaphnes
+Terminal=false

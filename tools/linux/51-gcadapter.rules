@@ -1,0 +1,5 @@
+# The official GameCube adapter for Wii U (057e:0337): lets your user read it. Copy to /etc/udev/rules.d/, then
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# and plug the adapter in again.
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="057e", ATTRS{idProduct}=="0337", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="057e", ATTRS{idProduct}=="0337", TAG+="uaccess"
