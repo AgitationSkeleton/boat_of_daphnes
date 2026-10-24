@@ -28,6 +28,7 @@ SYSTEM_LIBS = {
     "ld-linux-x86-64.so.2", "libc.so.6", "libm.so.6", "libdl.so.2", "libpthread.so.0", "librt.so.1", "libgcc_s.so.1",
     "libstdc++.so.6", "libz.so.1", "libssl.so.3", "libcrypto.so.3", "libpng16.so.16", "libfreetype.so.6",
     "libsqlite3.so.0",  # Aurora takes the system SQLite when one is installed (every desktop distribution has it)
+    "libzstd.so.1", "liblzma.so.5", "libbz2.so.1.0",  # compression libraries the base system itself depends on
 }
 FORBIDDEN = ["tww_game.so", "tww_game_rando.so", "tww_game.txt", "tww_game_rando.txt", "tww_game_rando.diff", "game",
              "assets/link_colors", "assets/swift_sail", "assets/bunnyhood", "Save", "saves", "Randomizer", "logs"]
@@ -96,15 +97,18 @@ def main():
     put(exe, out, "boat-of-daphnes", 0o755)
     if shutil.which("strip"):  # (debug information only: the dynamic symbols the game's modules bind to stay)
         subprocess.run(["strip", "--strip-debug", os.path.join(out, "boat-of-daphnes")], check=True)
-    ships = set()
+    ships, missing = set(), []
     for lib in needed_libs(exe):
         if lib in SYSTEM_LIBS:
             continue
         hits = glob.glob(os.path.join(build, "**", lib), recursive=True)
         if not hits:
-            raise SystemExit(f"package: the program needs {lib}, which is neither beside it in {build} nor a system library")
+            missing.append(lib)
+            continue
         put(os.path.realpath(hits[0]), out, lib)  # (the real file, under the name the program asks for)
         ships.add(lib)
+    if missing:  # (all of them at once)
+        raise SystemExit(f"package: the program needs {', '.join(missing)}, neither beside it in {build} nor system libraries")
     print("package: libraries beside the program:", ", ".join(sorted(ships)) or "none")
 
     # --- the compiler the first start builds the game's code with ---
