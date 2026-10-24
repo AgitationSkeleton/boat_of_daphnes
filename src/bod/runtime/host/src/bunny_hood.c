@@ -63,7 +63,12 @@ enum {
 
 #define SPEED_FACTOR 1.5f // MM: speedTarget *= 1.5f in the walk/run action (z_player.c), not while Z-targeting
 
-static bool guest_ptr(u32 p) { return p >= 0x80000000u && p < 0x81800000u; }
+// Guest memory the game's own pointers may point into: MEM1 (the game's 24 MB, and the puppets' fast pool above them, where
+// the hood's models are also made) and the MEM2 pool (puppet.c sets the ends).
+extern u32 bluewake_puppet_mem1_end, bluewake_puppet_mem2_end;
+static bool guest_ptr(u32 p) {
+    return (p >= 0x80000000u && p < bluewake_puppet_mem1_end) || (p >= 0x90000000u && p < bluewake_puppet_mem2_end);
+}
 
 static float read_f32(CPUState* cpu, u32 address) {
     const u32 bits = mem_read32(cpu, address);

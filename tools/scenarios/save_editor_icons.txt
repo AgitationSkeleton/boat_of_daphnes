@@ -1,6 +1,7 @@
 description The Save Editor window with a full inventory, the hood and the Swift Sail option: every icon must load
 save 17-StartWT
 windowed
+env BLUEWAKE_TEST_SAVE_TAB 1
 cvar gEnhancements.BetterWW.swift_sail 1
 cvar gOpenWindows.SaveEditor 1
 start load
