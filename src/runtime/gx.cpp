@@ -1399,6 +1399,25 @@ double gxNow() {
 }
 
 
+bool gxCapturePeeks(u64 stream, u64 sequence, const GxPeek* peeks, u32 count) {
+    if (!s_frame || count == 0 || redirectedToMemory()) return false;
+    if (std::getenv("SA2_EFB_LOG") && !peeks[0].depth)
+        log("[efb] capture at viewport %.1f x %.1f origin %.1f, %.1f; scissor %06X %06X; proj %.4f %.4f %.4f %.4f\n", xff(0x101A) * 2, xff(0x101B) * -2,
+            xff(0x101D) - 342.f, xff(0x101E) - 342.f, s_bp[0x20], s_bp[0x21], xff(0x1020), xff(0x1021), xff(0x1022), xff(0x1023));
+    aurora(0x0050);  // GX_AURORA_READBACK_CAPTURE_PEEKS (extern/aurora GXAurora.h)
+    put64(stream);
+    put64(sequence);
+    put32(count);
+    put8(2);  // GX_READ_NONE: alpha as stored
+    for (u32 i = 0; i < count; i++) {
+        put64(peeks[i].key);
+        put8(peeks[i].depth ? 0 : 1);  // AURORA_READBACK_PEEK_Z, _ARGB
+        put16(peeks[i].x);
+        put16(peeks[i].y);
+    }
+    return true;
+}
+
 bool gxProject(const float eye[3], float& x, float& y) {
     if (s_xf[0x1026] != 0 || eye[2] > -1e-3f) return false;  // (orthographic, or behind the eye)
     const float ndcX = (xff(0x1020) * eye[0] + xff(0x1021) * eye[2]) / -eye[2];

@@ -93,6 +93,16 @@ double gxNow();  // GxFrame::time's clock
 // drawing (guest address, GX format, width, height) is offered here first: a result is drawn in the
 // game's data's place (host memory, kept until the frame is drawn); nullptr leaves it as it is.
 extern const u8* (*g_texSubstitute)(u32 addr, u32 format, u32 width, u32 height);
+// EFB read-back (src/runtime/efbpeek.cpp): a capture of points of the EFB as it is at this place in
+// the frame's commands (the game's GXPeekARGB / GXPeekZ); the values come back some frames later.
+struct GxPeek {
+    u64 key;       // chosen by the caller, unique within a capture
+    bool depth;    // Z (24 bits), else ARGB
+    u16 x, y;      // on the game's logical EFB (640 wide)
+};
+// The game thread: records the capture in the frame being built. false: nowhere to record it now.
+bool gxCapturePeeks(u64 stream, u64 sequence, const GxPeek* peeks, u32 count);
+
 // An eye-space point (the game thread, during the 3D drawing) on the game's 640x480 screen, through
 // the projection and viewport the game has set; false behind the eye.
 bool gxProject(const float eye[3], float& x, float& y);
