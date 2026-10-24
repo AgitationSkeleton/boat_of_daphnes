@@ -5,6 +5,7 @@
 
 #include <stdatomic.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 enum {
@@ -166,49 +167,60 @@ static void unlock(void) { atomic_flag_clear_explicit(&g_lock, memory_order_rele
 // pc 0xFFFFFFFC; a warp straight to sea point -2 gave no player. The ships of the sea rooms (from the disc's sea Room*.arc:
 // ikada_h is a shop ship, ikadaS a submarine; interior = the room number inside) are listed here, and the notes are made valid
 // when a scene change to a ship or to sea point -2 is pending and they are not.
+//
+// A ship is also tied to the room's layer: the search above reads every layer's actors, but only the loaded layer's ships are
+// created, and Link, put on the deck of a ship that is not there, waits for it forever (daPy_lk_c::makeBgWait: the ground under
+// him must be a moving ship) - a black screen with the Play scene started and nothing running. Windfall's shop ship, for one,
+// is there at night only (layers 1, 3 and 5, one ship id each), so a warp into its shop by day found no ship on the way out.
+// The layer is the one the game would pick (dComIfG_play_c::getLayerNo); when no ship of the notes' room is in it, the exit asks
+// for the layer of the ship instead.
 enum {
     PLAY_IKADA_ROOM = 0x803C4C08u + 0x12A0u + 0x4A66u, // play.mIkadaShipBeforeRoomId (u8), then mIkadaShipId (u8), mIkadaLinkPos (cXyz at +2)
+    SAVE_TIME = 0x803C4C08u + 0x18u + 0xCu,            // dSv_player_status_b_c::mTime (f32, 0..360: 15 a hour)
+    SAVE_EVENT_FLAGS = 0x803C4C08u + 0x624u,           // dSv_event_c::mFlags[0x100]
+    SAVE_SYMBOLS = 0x803C4C08u + 0xB4u + 0xBu,         // dSv_player_collect_c::mSymbol
 };
 
 typedef struct IkadaShip {
-    u8 kind;     // 0 a shop ship (Obshop), 1 a submarine (Abship)
-    u8 sea_room; // the sea room it floats in
-    u8 id;       // IkadaGetIkadaIdArgPrm
-    u8 interior; // IkadaGetRoomNoArg0: the room inside
+    u8 kind;      // 0 a shop ship (Obshop), 1 a submarine (Abship)
+    u8 sea_room;  // the sea room it floats in
+    u8 id;        // IkadaGetIkadaIdArgPrm
+    u8 interior;  // IkadaGetRoomNoArg0: the room inside
+    u16 layers;   // bit n: it is in the room's layer n (the ACTn chunk); 0xFFF: in every layer (ACTR)
     float pos[3];
 } IkadaShip;
 
 static const IkadaShip kIkadaShips[] = {
-    {0, 10, 0, 2, {-112794.0f, 0.0f, -194788.1f}},
-    {0, 11, 1, 3, {1580.6f, 0.0f, -196206.2f}},
-    {0, 11, 2, 3, {1580.6f, 0.0f, -196206.2f}},
-    {0, 11, 3, 3, {1580.6f, 0.0f, -196206.2f}},
-    {0, 12, 44, 2, {97900.0f, 0.0f, -203500.0f}},
-    {0, 13, 0, 2, {193948.6f, 0.0f, -200560.2f}},
-    {0, 23, 0, 4, {-204901.1f, 0.0f, 9411.9f}},
-    {0, 26, 0, 4, {79499.5f, 0.0f, -18812.4f}},
-    {0, 27, 0, 2, {210900.0f, 0.0f, 5900.0f}},
-    {0, 32, 0, 2, {19133.2f, 0.0f, 83178.2f}},
-    {0, 38, 0, 4, {-96468.9f, 0.0f, 218194.6f}},
-    {0, 41, 0, 2, {218300.0f, 0.0f, 195200.0f}},
-    {0, 44, 0, 2, {-203078.5f, 100.0f, 312923.0f}},
-    {0, 44, 1, 2, {-203078.5f, 100.0f, 312923.0f}},
-    {0, 44, 2, 2, {-203078.5f, 100.0f, 312923.0f}},
-    {0, 44, 4, 2, {-204150.0f, 0.0f, 312150.0f}},
-    {0, 44, 5, 2, {-204150.0f, 0.0f, 312150.0f}},
-    {0, 44, 6, 2, {-204150.0f, 0.0f, 312150.0f}},
-    {0, 44, 7, 2, {-204150.0f, 0.0f, 312150.0f}},
-    {0, 44, 8, 2, {-203078.5f, 100.0f, 312923.0f}},
-    {0, 44, 9, 2, {-203078.5f, 100.0f, 312923.0f}},
-    {0, 44, 10, 2, {-203078.5f, 100.0f, 312923.0f}},
-    {0, 44, 11, 2, {-203078.5f, 100.0f, 312923.0f}},
-    {1, 3, 0, 4, {-120300.0f, 0.0f, -308600.0f}},
-    {1, 5, 0, 7, {111500.0f, 0.0f, -325300.0f}},
-    {1, 14, 0, 6, {301100.0f, 0.0f, -180000.0f}},
-    {1, 25, 0, 1, {-12700.0f, 0.0f, 18300.0f}},
-    {1, 34, 0, 2, {200100.0f, 0.0f, 99600.0f}},
-    {1, 45, 0, 5, {-102100.0f, 0.0f, 287000.0f}},
-    {1, 49, 0, 0, {330600.0f, 0.0f, 330300.0f}},
+    {0, 10, 0, 2, 0xFFF, {-112794.0f, 0.0f, -194788.1f}},
+    {0, 11, 1, 3, 0x020, {1580.6f, 0.0f, -196206.2f}},
+    {0, 11, 2, 3, 0x002, {1580.6f, 0.0f, -196206.2f}},
+    {0, 11, 3, 3, 0x008, {1580.6f, 0.0f, -196206.2f}},
+    {0, 12, 44, 2, 0xFFF, {97900.0f, 0.0f, -203500.0f}},
+    {0, 13, 0, 2, 0x003, {193948.6f, 0.0f, -200560.2f}},
+    {0, 23, 0, 4, 0xFFF, {-204901.1f, 0.0f, 9411.9f}},
+    {0, 26, 0, 4, 0xFFF, {79499.5f, 0.0f, -18812.4f}},
+    {0, 27, 0, 2, 0xFFF, {210900.0f, 0.0f, 5900.0f}},
+    {0, 32, 0, 2, 0xFFF, {19133.2f, 0.0f, 83178.2f}},
+    {0, 38, 0, 4, 0xFFF, {-96468.9f, 0.0f, 218194.6f}},
+    {0, 41, 0, 2, 0xFFF, {218300.0f, 0.0f, 195200.0f}},
+    {0, 44, 0, 2, 0x001, {-203078.5f, 100.0f, 312923.0f}},
+    {0, 44, 1, 2, 0x002, {-203078.5f, 100.0f, 312923.0f}},
+    {0, 44, 2, 2, 0x004, {-203078.5f, 100.0f, 312923.0f}},
+    {0, 44, 4, 2, 0x010, {-204150.0f, 0.0f, 312150.0f}},
+    {0, 44, 5, 2, 0x020, {-204150.0f, 0.0f, 312150.0f}},
+    {0, 44, 6, 2, 0x040, {-204150.0f, 0.0f, 312150.0f}},
+    {0, 44, 7, 2, 0x080, {-204150.0f, 0.0f, 312150.0f}},
+    {0, 44, 8, 2, 0x100, {-203078.5f, 100.0f, 312923.0f}},
+    {0, 44, 9, 2, 0x200, {-203078.5f, 100.0f, 312923.0f}},
+    {0, 44, 10, 2, 0x400, {-203078.5f, 100.0f, 312923.0f}},
+    {0, 44, 11, 2, 0x800, {-203078.5f, 100.0f, 312923.0f}},
+    {1, 3, 0, 4, 0xFFF, {-120300.0f, 0.0f, -308600.0f}},
+    {1, 5, 0, 7, 0xFFF, {111500.0f, 0.0f, -325300.0f}},
+    {1, 14, 0, 6, 0xFFF, {301100.0f, 0.0f, -180000.0f}},
+    {1, 25, 0, 1, 0xFFF, {-12700.0f, 0.0f, 18300.0f}},
+    {1, 34, 0, 2, 0xFFF, {200100.0f, 0.0f, 99600.0f}},
+    {1, 45, 0, 5, 0xFFF, {-102100.0f, 0.0f, 287000.0f}},
+    {1, 49, 0, 0, 0xFFF, {330600.0f, 0.0f, 330300.0f}},
 };
 
 static void set_ikada_notes(CPUState* cpu, const IkadaShip* s) {
@@ -217,6 +229,38 @@ static void set_ikada_notes(CPUState* cpu, const IkadaShip* s) {
     for (u32 i = 0; i < 3u; ++i)
         write_float(cpu, PLAY_IKADA_ROOM + 2u + 4u * i, s->pos[i]);
 }
+
+static bool event_bit(CPUState* cpu, u32 bit) {
+    return (mem_read8(cpu, SAVE_EVENT_FLAGS + (bit >> 8)) & (bit & 0xFFu)) != 0u;
+}
+
+// The layer the game loads a sea room in: the one asked for, else by the time of day and the story (dComIfG_play_c::getLayerNo).
+static int sea_layer(CPUState* cpu, int room, int asked) {
+    if (asked >= 0)
+        return asked;
+    const int hour = (int)(read_float(cpu, SAVE_TIME) / 15.0f);
+    // dKy_checkEventNightStop: the endless night, until Nayru's pearl
+    const bool night_stop = event_bit(cpu, 0x0A02u) && (mem_read8(cpu, SAVE_SYMBOLS) & 1u) == 0u;
+    const int layer = night_stop || hour < 6 || hour >= 18 ? 1 : 0;
+    if (room == 44) { // Outset
+        if (event_bit(cpu, 0x0520u))
+            return layer | 4;
+        if (event_bit(cpu, 0x0E20u))
+            return layer | 2;
+        if (event_bit(cpu, 0x0101u))
+            return 9;
+    } else if (room == 11) { // Windfall
+        if (event_bit(cpu, 0x2D01u))
+            return layer | 4;
+        if (night_stop)
+            return layer | 2;
+    } else if (room == 1) { // the Forsaken Fortress
+        return event_bit(cpu, 0x1820u) ? 3 : 1;
+    }
+    return layer;
+}
+
+static bool ship_in_layer(const IkadaShip* s, int layer) { return layer >= 0 && layer < 12 && ((s->layers >> layer) & 1u) != 0u; }
 
 static void fix_ship_return(CPUState* cpu) {
     char name[9] = {0};
@@ -227,6 +271,7 @@ static void fix_ship_return(CPUState* cpu) {
     }
     const int point = (s16)mem_read16(cpu, NEXT_STAGE + 0x8u);
     const int room = (s8)mem_read8(cpu, NEXT_STAGE + 0xAu);
+    const int asked_layer = (s8)mem_read8(cpu, NEXT_STAGE + 0xBu);
     const u8 noted_room = mem_read8(cpu, PLAY_IKADA_ROOM), noted_id = mem_read8(cpu, PLAY_IKADA_ROOM + 1u);
     static const size_t n = sizeof kIkadaShips / sizeof kIkadaShips[0];
     int kind = -1;
@@ -236,7 +281,8 @@ static void fix_ship_return(CPUState* cpu) {
         kind = 1;
     if (kind >= 0) {
         // Going inside: the notes must name a ship of this kind (the room inside is the one asked for when one has it).
-        // Best: a ship with this inside, in the sea room Link is in now; then any with this inside; then any of the kind.
+        // Best: a ship with this inside that is there now (in its room's layer), in the sea room Link is in now; then any with
+        // this inside; then any of the kind.
         const bool at_sea = mem_read8(cpu, CUR_STAGE) == 's' && mem_read8(cpu, CUR_STAGE + 1u) == 'e' &&
                             mem_read8(cpu, CUR_STAGE + 2u) == 'a' && mem_read8(cpu, CUR_STAGE + 3u) == '\0';
         const int here = at_sea ? (s8)mem_read8(cpu, STAY_ROOM) : -1;
@@ -248,7 +294,8 @@ static void fix_ship_return(CPUState* cpu) {
                 continue;
             if (s->sea_room == noted_room && s->id == noted_id && s->interior == room)
                 return; // the notes are those of a real ship with this inside: the way they were set by a door
-            const int score = (s->interior == room ? 2 : 0) + (s->sea_room == here ? 1 : 0);
+            const int score = (s->interior == room ? 4 : 0) + (ship_in_layer(s, sea_layer(cpu, s->sea_room, -1)) ? 2 : 0) +
+                              (s->sea_room == here ? 1 : 0);
             if (score > any_score) {
                 any = s;
                 any_score = score;
@@ -260,23 +307,36 @@ static void fix_ship_return(CPUState* cpu) {
                     any->sea_room, any->id);
         }
     } else if (strcmp(name, "sea") == 0 && point == -2) {
-        // Out to the ship's deck: a ship by the notes must be in the sea room asked for.
-        const IkadaShip* in_room = NULL;
+        // Out to the ship's deck: a ship by the notes must be in the sea room asked for, and be there in the layer it loads in.
+        const int layer = sea_layer(cpu, room, asked_layer);
+        const IkadaShip* noted = NULL;   // the ship the notes name
+        const IkadaShip* fit = NULL;     // a ship in this layer (the noted one's inside by preference)
+        const IkadaShip* in_room = NULL; // any ship in the room
         for (size_t i = 0; i < n; ++i) {
             const IkadaShip* s = &kIkadaShips[i];
             if (s->sea_room != room)
                 continue;
-            if (s->id == noted_id && noted_room == room)
-                return;
             if (in_room == NULL)
                 in_room = s;
+            if (s->id == noted_id && noted_room == room)
+                noted = s;
         }
-        if (in_room != NULL) {
-            set_ikada_notes(cpu, in_room);
-            fprintf(stderr, "[teleport] sea room %d point -2: the ship there (id %d) noted\n", room, in_room->id);
+        for (size_t i = 0; i < n; ++i) {
+            const IkadaShip* s = &kIkadaShips[i];
+            if (s->sea_room != room || !ship_in_layer(s, layer))
+                continue;
+            if (fit == NULL || (noted != NULL && s->interior == noted->interior && fit->interior != noted->interior))
+                fit = s;
+        }
+        if (noted != NULL && ship_in_layer(noted, layer))
+            return; // the ship of the notes is there
+        if (fit != NULL) {
+            set_ikada_notes(cpu, fit);
+            fprintf(stderr, "[teleport] sea room %d point -2 (layer %d): the ship there (id %d) noted\n", room, layer, fit->id);
         } else {
-            mem_write16(cpu, NEXT_STAGE + 0x8u, 0u); // no ship in that room: its first start point instead of no player
-            fprintf(stderr, "[teleport] sea room %d has no ship: point 0 instead of -2\n", room);
+            // no ship of the room is there in this layer: keep the world as the time of day has it, and put Link at the start point
+            mem_write16(cpu, NEXT_STAGE + 0x8u, 0u);
+            fprintf(stderr, "[teleport] sea room %d: no ship in layer %d, point 0 instead of -2\n", room, layer);
         }
     }
 }
@@ -413,6 +473,22 @@ void bluewake_game_state_retrace(CPUState* cpu) {
                 now.sea_x = 100000.0f * (float)gx;
                 now.sea_z = 100000.0f * (float)gz;
             }
+        }
+    }
+    {
+        // BLUEWAKE_TEST_LINK=1 (testing only): where Link is and how far the Play scene has got, twice a second, for scripted walks.
+        static int s_log = -1;
+        static unsigned s_tick;
+        if (s_log < 0) {
+            const char* e = getenv("BLUEWAKE_TEST_LINK");
+            s_log = e != NULL && e[0] == '1';
+        }
+        if (s_log && ++s_tick % 30u == 0u) {
+            const u32 node = mem_read32(cpu, SCENE_LIST);
+            const u32 scene = node >= 0x80000000u ? mem_read32(cpu, node + 0x0Cu) : 0u;
+            fprintf(stderr, "[link] %s room %d scene %d phase %d/%d at %.0f %.0f %.0f angle %d\n", now.stage, (int)now.stay_room, now.scene_proc,
+                    scene >= 0x80000000u ? (int)mem_read32(cpu, scene + 0x1C4u) : -1, scene >= 0x80000000u ? (int)mem_read32(cpu, scene + 0x1C8u) : -1,
+                    now.pos[0], now.pos[1], now.pos[2], (int)now.angle_y);
         }
     }
     {
