@@ -3,6 +3,7 @@
 #include "dev_tools.h"
 #include "jabun_guard.h"
 
+#include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,6 +45,8 @@ typedef struct Teleport {
 static Teleport g_teleport;
 // After a teleport on the ship: the ship's place, applied once Link rides it in the new scene.
 static struct { bool pending; float pos[3]; int angle_y; unsigned wait; } g_ship_fix;
+static bool g_last_sea_known;   // Link was last at sea in this square (world x, z of its centre)
+static float g_last_sea[2];
 
 static float read_float(CPUState* cpu, u32 address) {
     const u32 bits = mem_read32(cpu, address);
@@ -459,10 +462,20 @@ void bluewake_game_state_retrace(CPUState* cpu) {
             now.sea_known = true;
             now.sea_x = now.pos[0];
             now.sea_z = now.pos[2];
+            // The island's square, for an interior entered from here (a ship in a sea room holds it at the room's centre).
+            g_last_sea_known = true;
+            g_last_sea[0] = 100000.0f * (float)((int)floorf(now.pos[0] / 100000.0f + 0.5f));
+            g_last_sea[1] = 100000.0f * (float)((int)floorf(now.pos[2] / 100000.0f + 0.5f));
         } else if (now.stage[0] != ' ') {
             // dMenu_Fmap_c::initialize: the stage's map info names the chart square (a nibble each, signed; 4 is the middle).
             const u32 info = mem_read32(cpu, STAGE_MAP_INFO);
-            if (info >= 0x80000000u && info < 0x81800000u) {
+            // A shop ship or a submarine: the sea room the ship was entered from (the ikada notes), not the inside's map info.
+            const u32 ikada_room = mem_read8(cpu, PLAY_IKADA_ROOM);
+            if ((strncmp(now.stage, "Obshop", 8) == 0 || strncmp(now.stage, "Abship", 8) == 0) && ikada_room >= 1u && ikada_room <= 49u) {
+                now.sea_known = true;
+                now.sea_x = 100000.0f * (float)((int)((ikada_room - 1u) % 7u) - 3);
+                now.sea_z = 100000.0f * (float)((int)((ikada_room - 1u) / 7u) - 3);
+            } else if (info >= 0x80000000u && info < 0x81800000u) {
                 const u32 xz = mem_read8(cpu, info + 0x36u);
                 int gx = (int)(xz & 0xFu), gz = (int)((xz >> 4) & 0xFu);
                 gx = gx & 8 ? gx - 16 : gx;
@@ -472,6 +485,12 @@ void bluewake_game_state_retrace(CPUState* cpu) {
                 now.sea_known = true;
                 now.sea_x = 100000.0f * (float)gx;
                 now.sea_z = 100000.0f * (float)gz;
+            }
+            // An interior with no square of its own: where the sea last had Link (the island he went in from).
+            if (!now.sea_known && g_last_sea_known) {
+                now.sea_known = true;
+                now.sea_x = g_last_sea[0];
+                now.sea_z = g_last_sea[1];
             }
         }
     }

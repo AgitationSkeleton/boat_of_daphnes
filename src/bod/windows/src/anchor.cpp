@@ -80,6 +80,7 @@ struct Player {
     std::string client_version; // their Anchor protocol (kAnchorProtocol); a different one cannot play together
     std::string seed;           // their randomizer seed ("" in a vanilla session)
     bool save_loaded = false;   // in a game, not at the title or the file select
+    bool hidden = false;        // Hide My Location: no chart marker, no area name, no teleport (an older build sends none)
     // The last pose (PLAYER_UPDATE): where the puppet or marker is drawn.
     std::string pose_stage;
     int pose_room = -1;
@@ -219,6 +220,8 @@ CVarColor my_color() {
     return CVarGetInteger("gCosmetics.Link.Hero.Tunic.Changed", 0) ? CVarGetColor("gCosmetics.Link.Hero.Tunic.Value", green) : green;
 }
 
+bool hide_location() { return CVarGetInteger("gNetwork.Anchor.HideLocation", 0) != 0; }
+
 picojson::object client_state() {
     const BluewakeLocation where = bluewake_game_location();
     picojson::object s;
@@ -233,6 +236,8 @@ picojson::object client_state() {
     s["room"] = picojson::value(static_cast<int64_t>(where.room));
     s["point"] = picojson::value(static_cast<int64_t>(where.point));
     s["isSaveLoaded"] = picojson::value(where.stage[0] != '\0');
+    // Hide and seek: the others hide this player's area, chart marker and teleport arrow (an older client ignores the field).
+    s["hidden"] = picojson::value(hide_location());
     s["content"] = picojson::value(share_content() ? content::LocalHash() : std::string());
     // Which body the expression sent with the pose is for: 0 Link as the game has him, 1 a mod's Link that is shared (the content's
     // body), 2 a mod's Link that is not (others cannot show its expression on any model they have). An old client sends nothing.
@@ -348,9 +353,11 @@ picojson::array changes_json(const BluewakeSyncChange* c, unsigned n) {
     return a;
 }
 
-void give_changes(const picojson::value& v) {
+// Returns whether any change is outside the item lane (the settled merge: a "Save updated from team" toast).
+bool give_changes(const picojson::value& v) {
+    bool other = false;
     if (!v.is<picojson::array>())
-        return;
+        return other;
     std::vector<BluewakeSyncChange> changes;
     for (const auto& e : v.get<picojson::array>()) {
         if (!e.is<picojson::array>() || e.get<picojson::array>().size() != 2)
@@ -360,11 +367,13 @@ void give_changes(const picojson::value& v) {
             continue;
         changes.push_back(BluewakeSyncChange{static_cast<uint16_t>(pair[0].get<int64_t>()),
                                              static_cast<uint8_t>(pair[1].get<int64_t>())});
+        other = other || !bluewake_team_sync_is_item(changes.back().offset);
     }
     if (!changes.empty()) {
         checktracker::NoteTeamSave();
         bluewake_team_sync_give(changes.data(), static_cast<unsigned>(changes.size()));
     }
+    return other;
 }
 
 // This game's seed for team sync ("" for a vanilla save), and whether a message names another (older builds send none).
@@ -388,11 +397,37 @@ void send_team_state(int target) {
     g_last_team_state_sent = SDL_GetTicks();
 }
 
+// The sea room (1-49, the Sea Chart's squares) an interior stage belongs to: the island it is entered from. 0 for a stage not
+// in the table (a cave or a ship that can be anywhere): the player's own CHART_UPDATE says where, from a build that sends it.
+int interior_sea_room(const std::string& stage) {
+    struct Entry { const char* stage; int room; };
+    static const Entry kEntries[] = {
+        {"LinkRM", 44}, {"Ojhous", 44}, {"Ojhous2", 44}, {"Omasao", 44}, {"Onobuta", 44}, {"A_mori", 44}, {"Pjavdou", 44}, {"LinkUG", 44},
+        {"Orichh", 11}, {"Ocmera", 11}, {"Pnezumi", 11}, {"Obombh", 11}, {"Pdrgsh", 11}, {"Opub", 11}, {"Nitiyou", 11},
+        {"Atorizk", 13}, {"Adanmae", 13}, {"Comori", 13}, {"M_NewD2", 13}, {"M_Dra09", 13}, {"M_DragB", 13},
+        {"Ocrogh", 41}, {"Omori", 41}, {"Otkura", 41}, {"Pfigure", 41}, {"figureA", 41}, {"figureB", 41}, {"figureC", 41},
+        {"figureD", 41}, {"figureE", 41}, {"figureF", 41}, {"figureG", 41}, {"kindan", 41}, {"kinMB", 41}, {"kinBOSS", 41},
+        {"Abesso", 33},
+        {"Siren", 26}, {"SirenMB", 26}, {"SirenB", 26}, {"ADMumi", 26},
+        {"Hyrule", 26}, {"Hyroom", 26}, {"kenroom", 26}, {"GanonA", 26}, {"GanonB", 26}, {"GanonC", 26}, {"GanonD", 26}, {"GanonE", 26},
+        {"GanonJ", 26}, {"GanonK", 26}, {"GanonL", 26}, {"GanonM", 26}, {"GanonN", 26}, {"Xboss0", 26}, {"Xboss1", 26},
+        {"Xboss2", 26}, {"Xboss3", 26}, {"GTower", 26},
+        {"Edaichi", 45}, {"M_Dai", 45}, {"M_DaiMB", 45}, {"M_DaiB", 45},
+        {"Ekaze", 4}, {"kaze", 4}, {"kazeMB", 4}, {"kazeB", 4},
+        {"MajyuE", 1}, {"Mjtower", 1}, {"majroom", 1}, {"ma2room", 1}, {"M2tower", 1}, {"M2ganon", 1}, {"ma3room", 1},
+        {"MiniKaz", 20}, {"MiniHyo", 40},
+    };
+    for (const Entry& e : kEntries)
+        if (stage == e.stage)
+            return e.room;
+    return 0;
+}
+
 void handle(const std::string& text);
 
 // Whether we and that player may teleport to each other (the room's rule, both in game).
 bool can_teleport_between(const Player& p) {
-    if (g_room_teleport == 0 || p.self || !p.online || p.stage.empty())
+    if (g_room_teleport == 0 || p.self || !p.online || p.stage.empty() || p.hidden)
         return false;
     if (bluewake_game_location().stage[0] == '\0')
         return false;
@@ -478,6 +513,7 @@ void handle(const std::string& text) {
             p.link_colors = c.count("linkColors") && c.at("linkColors").is<std::string>() ? c.at("linkColors").get<std::string>() : "";
             p.client_version = c.count("clientVersion") && c.at("clientVersion").is<std::string>() ? c.at("clientVersion").get<std::string>() : "";
             p.seed = c.count("seed") && c.at("seed").is<std::string>() ? c.at("seed").get<std::string>() : "";
+            p.hidden = c.count("hidden") && c.at("hidden").is<bool>() && c.at("hidden").get<bool>();
             p.save_loaded = c.count("isSaveLoaded") && c.at("isSaveLoaded").is<bool>() && c.at("isSaveLoaded").get<bool>();
             if (p.self)
                 g_self = p.id;
@@ -588,7 +624,15 @@ void handle(const std::string& text) {
         const int from = m.count("clientId") && m.at("clientId").is<int64_t>() ? static_cast<int>(m.at("clientId").get<int64_t>()) : 0;
         const auto it = g_players.find(from);
         const BluewakeLocation where = bluewake_game_location();
-        if (it != g_players.end() && can_teleport_between(it->second) && where.has_player) {
+        if (it != g_players.end() && hide_location()) {
+            // Hide and seek: no place to give. The asker's list greys us out; this answers a request already on its way.
+            picojson::object a;
+            a["type"] = picojson::value("TELEPORT_REFUSED");
+            a["targetClientId"] = picojson::value(static_cast<int64_t>(from));
+            a["reason"] = picojson::value("hidden");
+            send(a);
+            std::fprintf(stderr, "[anchor] teleport request from %d refused: location hidden\n", from);
+        } else if (it != g_players.end() && can_teleport_between(it->second) && where.has_player) {
             picojson::object a;
             a["type"] = picojson::value("TELEPORT_TO");
             a["targetClientId"] = picojson::value(static_cast<int64_t>(from));
@@ -613,6 +657,13 @@ void handle(const std::string& text) {
             }
             send(a);
         }
+    } else if (type == "TELEPORT_REFUSED") {
+        const int from = m.count("clientId") && m.at("clientId").is<int64_t>() ? static_cast<int>(m.at("clientId").get<int64_t>()) : 0;
+        if (from != g_teleport_asked)
+            return;
+        g_teleport_asked = 0;
+        const auto it = g_players.find(from);
+        toast(it != g_players.end() ? it->second.name : std::string(), "is hidden: cannot teleport to them");
     } else if (type == "TELEPORT_TO") {
         const int from = m.count("clientId") && m.at("clientId").is<int64_t>() ? static_cast<int>(m.at("clientId").get<int64_t>()) : 0;
         if (from != g_teleport_asked || !m.count("stage") || !m.count("pos") || !m.at("pos").is<picojson::array>())
@@ -694,8 +745,8 @@ void handle(const std::string& text) {
                      m.count("clientId") && m.at("clientId").is<int64_t>() ? (long long)m.at("clientId").get<int64_t>() : 0LL,
                      g_sync_on ? "" : " (sync off: ignored)");
         if (g_sync_on && m.count("changes")) {
-            give_changes(m.at("changes"));
-            if (SDL_GetTicks() - g_last_save_toast > 20000) {
+            // Items are announced by ITEM_FOUND ("<name> found <item>"); the toast is for the rest of the save.
+            if (give_changes(m.at("changes")) && SDL_GetTicks() - g_last_save_toast > 20000) {
                 g_last_save_toast = SDL_GetTicks();
                 toast("", "Save updated from team");
             }
@@ -761,7 +812,7 @@ void send_pose() {
 void send_chart() {
     static Uint64 last;
     const BluewakeLocation where = bluewake_game_location();
-    if (!where.has_player || !where.sea_known || SDL_GetTicks() - last < 200)
+    if (!where.has_player || !where.sea_known || SDL_GetTicks() - last < 200 || hide_location())
         return;
     last = SDL_GetTicks();
     picojson::object m;
@@ -1203,10 +1254,21 @@ void update_puppets(bool connected) {
                                        uint8_t(std::lround(p.color.x * 255.f)),
                                        uint8_t(std::lround(p.color.y * 255.f)), uint8_t(std::lround(p.color.z * 255.f)));
         if (!p.self) // an arrow on my Sea Chart wherever they are (pause menu), in their color
-            bluewake_puppet_remote_chart(id, p.online && p.sea_known && now - p.sea_time < 5000 &&
-                                             CVarGetInteger("gNetwork.Anchor.SeaChartPlayers", 1) != 0,
-                                         p.sea[0], p.sea[1], p.angle_y, uint8_t(std::lround(p.color.x * 255.f)),
+        {
+            float chart_at[2] = {p.sea[0], p.sea[1]};
+            bool chart_on = p.online && !p.hidden && p.sea_known && now - p.sea_time < 5000;
+            // Inside a building or a dungeon: the square of the island it belongs to, by the stage they are in (also for a
+            // build that sends no square for an interior). At sea their own CHART_UPDATE is exact.
+            if (p.online && !p.hidden && p.stage != "sea")
+                if (const int sea_room = interior_sea_room(p.stage); sea_room != 0) {
+                    chart_at[0] = 100000.0f * float((sea_room - 1) % 7 - 3);
+                    chart_at[1] = 100000.0f * float((sea_room - 1) / 7 - 3);
+                    chart_on = true;
+                }
+            bluewake_puppet_remote_chart(id, chart_on && CVarGetInteger("gNetwork.Anchor.SeaChartPlayers", 1) != 0,
+                                         chart_at[0], chart_at[1], p.angle_y, uint8_t(std::lround(p.color.x * 255.f)),
                                          uint8_t(std::lround(p.color.y * 255.f)), uint8_t(std::lround(p.color.z * 255.f)));
+        }
         if (!p.self)
             link_colors::SetPlayerColors(id, p.link_colors); // this player's puppet wears their colors (variant = their id)
         if (!p.self) {
@@ -1340,7 +1402,10 @@ void draw_players(bool) {
             }
             if (!p.stage.empty() && (p.self || p.save_loaded)) {
                 ImGui::SameLine();
-                ImGui::TextColored(ImVec4(1, 1, 1, 0.5f), "- %s", place_name(p.stage, p.room).c_str());
+                if (p.hidden && !p.self)
+                    ImGui::TextColored(ImVec4(1, 1, 1, 0.5f), "- Hidden");
+                else
+                    ImGui::TextColored(ImVec4(1, 1, 1, 0.5f), "- %s%s", place_name(p.stage, p.room).c_str(), p.self && hide_location() ? " (hidden from others)" : "");
             }
             if (can_teleport_between(p)) {
                 ImGui::SameLine();
@@ -1672,6 +1737,14 @@ void BuildMenu(shipmenu::Menu& m) {
             if (anchor::GetStatus() == anchor::Status::Connected)
                 send_state();
         });
+    m.AddWidget(H, "Anchor", 0, "Hide My Location", WidgetType::CVarCheckbox)
+        .CVar("gNetwork.Anchor.HideLocation")
+        .DefaultValue(false)
+        .Tooltip("For hide and seek: other players don't see you on the Sea Chart, don't see your area in the player list, and can't teleport to you.")
+        .Callback([](WidgetInfo&) {
+            if (anchor::GetStatus() == anchor::Status::Connected)
+                send_state();
+        });
     m.AddWidget(H, "Anchor", 0, "Room", WidgetType::SeparatorText);
     m.AddWidget(H, "Anchor", 0, "Room Name", WidgetType::CVarInputText)
         .CVar("gNetwork.Anchor.Room")
@@ -1848,6 +1921,33 @@ void test_teleport() {
         }
 }
 
+// BLUEWAKE_TEST_ANCHOR_HIDE=<on>,<off> (testing): that many seconds after connecting, Hide My Location goes on, and <off>
+// seconds after connecting, off again (the settings screen is not there in a headless run).
+void test_hide() {
+    static Uint64 since;
+    static int step;
+    const char* env = std::getenv("BLUEWAKE_TEST_ANCHOR_HIDE");
+    if (env == nullptr || step >= 2)
+        return;
+    if (since == 0)
+        since = SDL_GetTicks();
+    const Uint64 on_at = 1000ull * std::strtoull(env, nullptr, 10);
+    const char* comma = std::strchr(env, ',');
+    const Uint64 off_at = comma != nullptr ? 1000ull * std::strtoull(comma + 1, nullptr, 10) : on_at + 20000;
+    const Uint64 t = SDL_GetTicks() - since;
+    if (step == 0 && t >= on_at) {
+        step = 1;
+        CVarSetInteger("gNetwork.Anchor.HideLocation", 1);
+        send_state();
+        std::fprintf(stderr, "[anchor] test: Hide My Location on\n");
+    } else if (step == 1 && t >= off_at) {
+        step = 2;
+        CVarSetInteger("gNetwork.Anchor.HideLocation", 0);
+        send_state();
+        std::fprintf(stderr, "[anchor] test: Hide My Location off\n");
+    }
+}
+
 // BLUEWAKE_TEST_ANCHOR_CYCLE=<seconds> (testing): that long after the first connection, disconnect, connect again 3 s
 // later, and disconnect once more 3 s after that connection; each disconnect logs how long it held this thread.
 void test_cycle(anchor::Status status) {
@@ -1901,6 +2001,7 @@ void Frame(float scale, float fontScale) {
         send_pose();
         send_chart();
         test_teleport();
+        test_hide();
     }
     // Testing: BLUEWAKE_TEST_CHAT=<text> says it once, a few seconds after the connection.
     if (static const char* test = std::getenv("BLUEWAKE_TEST_CHAT"); test != nullptr && status == anchor::Status::Connected) {

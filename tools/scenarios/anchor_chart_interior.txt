@@ -1,0 +1,27 @@
+description Online: a teammate inside a building shows on the Sea Chart at its island's square (needs a local Anchor server and three spy mates, see the header)
+# Run (three mates, none sends a CHART_UPDATE: they stand in an Outset house, a Windfall house, and a hidden one):
+#   STAGE=LinkRM ROOM=0 NAME=SpyA COLOR=#ff2020 NOCHART=1 node server/anchor/test/spy_mate.mjs ws://127.0.0.1:8812 wt3int 400 blue 0
+#   STAGE=Orichh ROOM=0 NAME=SpyB COLOR=#2020ff NOCHART=1 node server/anchor/test/spy_mate.mjs ws://127.0.0.1:8812 wt3int 400 blue 0
+#   STAGE=Ojhous ROOM=0 NAME=SpyC COLOR=#20ff20 NOCHART=1 HIDDEN=1 node server/anchor/test/spy_mate.mjs ws://127.0.0.1:8812 wt3int 400 blue 0
+# The Sea Chart opens by itself (BLUEWAKE_TEST_FMAP) and BLUEWAKE_PUPPET_CHART_LOG logs the arrows drawn; look at the shots.
+save 2-Pictobox
+cvar gNetwork.Anchor.Host 127.0.0.1:8812
+cvar gNetwork.Anchor.Room wt3int
+cvar gNetwork.Anchor.Name Tester
+cvar gNetwork.Anchor.Team blue
+cvar gNetwork.Anchor.Enabled 1
+env BLUEWAKE_TEST_FMAP 1500
+env BLUEWAKE_PUPPET_CHART_LOG 1
+windowed
+timeout 300
+start load
+wait link
+wait 700
+shot before_chart
+wait 120
+shot chart_a
+wait 60
+shot chart_b
+wait 120
+log done
+expect_not TIMEOUT
