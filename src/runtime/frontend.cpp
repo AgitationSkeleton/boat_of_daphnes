@@ -490,7 +490,17 @@ int runFrontend(int argc, char** argv, bool headless, u64 maxFrames, void (*star
     if (static SDL_Surface* const s_icon = appicon::load(); s_icon)
         cfg.iconRGBA8 = s_icon->pixels, cfg.iconWidth = u32(s_icon->w), cfg.iconHeight = u32(s_icon->h);
 #endif
+    // Scripted runs: the window not taking the focus (BLUEWAKE_WINDOW_NOACTIVATE=1), put where BLUEWAKE_WINDOW_POS=x,y says
+    if (const char* quiet = std::getenv("BLUEWAKE_WINDOW_NOACTIVATE"); quiet && quiet[0] == '1') {
+        SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
+        SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_RAISED, "0");
+    }
     const AuroraInfo info = aurora_initialize(argc, argv, &cfg);
+    if (const char* where = std::getenv("BLUEWAKE_WINDOW_POS")) {
+        int x = 0, y = 0;
+        if (std::sscanf(where, "%d,%d", &x, &y) == 2)
+            if (SDL_Window* w = aurora::window::get_sdl_window()) SDL_SetWindowPosition(w, x, y);
+    }
     // Widescreen is the game's (src/runtime/twwwide.cpp): it renders an anamorphic picture, stretched
     // over the window; Aurora's own widening of 4:3 content (SA2B's) stays off.
     AuroraSetViewportPolicy(widescreen ? AURORA_VIEWPORT_STRETCH : AURORA_VIEWPORT_FIT);

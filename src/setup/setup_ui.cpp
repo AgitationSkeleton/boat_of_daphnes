@@ -38,6 +38,7 @@ void SDLCALL onPicked(void*, const char* const* files, int) {
 
 // The system's file picker, waited for: "" when the player closed it.
 fs::path pickDisc(SDL_Window* parent) {
+    if (std::getenv("BLUEWAKE_NO_DIALOG")) return {};  // (scripted runs: no picker to wait on)
     s_picking = true;
     SDL_ShowOpenFileDialog(onPicked, nullptr, parent, kFilters, 2, nullptr, false);
     while (s_picking) {
@@ -49,16 +50,41 @@ fs::path pickDisc(SDL_Window* parent) {
     return s_picked.empty() ? fs::path() : fs::u8path(s_picked);
 }
 
+// A window where scripted runs want it (BLUEWAKE_WINDOW_POS=x,y), not taking the focus (BLUEWAKE_WINDOW_NOACTIVATE=1).
+SDL_Window* makeWindow(int w, int h) {
+    int x = 0, y = 0;
+    const char* pos = std::getenv("BLUEWAKE_WINDOW_POS");
+    const bool placed = pos && std::sscanf(pos, "%d,%d", &x, &y) == 2;
+    const char* quiet = std::getenv("BLUEWAKE_WINDOW_NOACTIVATE");
+    if (quiet && quiet[0] == '1') SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
+    SDL_PropertiesID props = SDL_CreateProperties();
+    SDL_SetStringProperty(props, SDL_PROP_WINDOW_CREATE_TITLE_STRING, kTitle);
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, w);
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, h);
+    if (placed) {
+        SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER, x);
+        SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, y);
+    }
+    if (quiet && quiet[0] == '1') SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_FOCUSABLE_BOOLEAN, false);
+    SDL_Window* win = SDL_CreateWindowWithProperties(props);
+    SDL_DestroyProperties(props);
+    return win;
+}
+
 fs::path s_exeDir;  // (for the font, set by runFirstRun)
 ImFont* loadFont(const fs::path& exeDir, float size);
 
 // A message with buttons, in a small window of its own (SDL's message box clips long button texts on Windows): each button
 // is as wide as its text. The chosen button's index (-1: closed, which counts as the last one).
 int ask(SDL_Window* parent, SDL_MessageBoxFlags kind, const std::string& text, std::initializer_list<const char*> buttons) {
+    if (std::getenv("BLUEWAKE_NO_DIALOG")) {  // scripted runs: the log has it, nothing waits for a click
+        std::fprintf(stderr, "[setup] %s\n", text.c_str());
+        return int(buttons.size()) - 1;
+    }
     float scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
     if (scale <= 0) scale = 1;
     const int width = int(560 * scale);
-    SDL_Window* win = SDL_CreateWindow(kTitle, width, int(180 * scale), 0);
+    SDL_Window* win = makeWindow(width, int(180 * scale));
     SDL_Renderer* ren = win ? SDL_CreateRenderer(win, nullptr) : nullptr;
     if (!ren) {
         if (win) SDL_DestroyWindow(win);
@@ -194,7 +220,7 @@ bool runFirstRun(const fs::path& exeDir, fs::path& disc, bool rememberedDisc) {
     // The build, in a small window.
     float scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
     if (scale <= 0) scale = 1;
-    SDL_Window* win = SDL_CreateWindow(kTitle, int(520 * scale), int(170 * scale), 0);
+    SDL_Window* win = makeWindow(int(520 * scale), int(170 * scale));
     SDL_Renderer* ren = win ? SDL_CreateRenderer(win, nullptr) : nullptr;
     if (!ren) {
         SDL_Quit();

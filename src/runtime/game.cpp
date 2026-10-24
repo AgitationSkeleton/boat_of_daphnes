@@ -17,6 +17,7 @@
 #endif
 
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 namespace rt {
@@ -40,9 +41,9 @@ bool loadGameModule(bool quiet, bool rando) {
     auto fail = [&] {
         std::fprintf(stderr, "%s\n", error.c_str());
 #if defined(_WIN32)
-        if (!quiet) MessageBoxA(nullptr, error.c_str(), "Boat of Daphnes", MB_OK | MB_ICONINFORMATION);
+        if (!quiet && !std::getenv("BLUEWAKE_NO_DIALOG")) MessageBoxA(nullptr, error.c_str(), "Boat of Daphnes", MB_OK | MB_ICONINFORMATION);
 #else
-        if (!quiet) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Boat of Daphnes", error.c_str(), nullptr);
+        if (!quiet && !std::getenv("BLUEWAKE_NO_DIALOG")) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Boat of Daphnes", error.c_str(), nullptr);
 #endif
         return false;
     };
