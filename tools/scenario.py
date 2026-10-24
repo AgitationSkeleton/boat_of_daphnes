@@ -361,7 +361,10 @@ def run(args, s: dict) -> dict:
     game_args += ["--frames", str(frames)]
     rungame = Path(args.rungame) if args.rungame else (LOCAL / "bod2" / "rungame.py" if LOCAL else None)
     if rungame and rungame.is_file():
-        cmd = [sys.executable, str(rungame), "--exe", str(exe), "--timeout", str(args.timeout or s["timeout"]), "--wait", str(args.wait), "--log", str(log)]
+        stop_file = out / "stop.flag"  # (the wrapper ends its own game by handle when this appears: never kill by PID)
+        stop_file.unlink(missing_ok=True)
+        cmd = [sys.executable, str(rungame), "--exe", str(exe), "--timeout", str(args.timeout or s["timeout"]), "--wait", str(args.wait), "--log", str(log),
+               "--stop-file", str(stop_file)]
         for k, v in env.items():
             cmd += ["--env", f"{k}={v}"]
         cmd += ["--"] + game_args
@@ -389,7 +392,12 @@ def run(args, s: dict) -> dict:
                 if not dead and re.search(r"Failed assertion|CRASH:|FATAL", text):
                     dead = time.time()  # the game stopped itself: no use holding the game lock; its log says why
                 if dead and time.time() > dead + 8:
-                    subprocess.call(["taskkill", "/F", "/T", "/PID", str(proc.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    # Never taskkill by PID (/T follows parent PIDs, which Windows reuses: it once took the user's own game
+                    # with it). The wrapper stops its own game by handle; without a wrapper, our own child's handle.
+                    if wrapped:
+                        (out / "stop.flag").touch()
+                    else:
+                        proc.kill()
                 for m in re.finditer(r"\[script\] winshot (\S+)", text):
                     key = f"{m.group(1)}@{m.start()}"
                     if key not in shots_done:
