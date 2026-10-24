@@ -13,6 +13,11 @@
 //         MATE_NAME (default "Mate"), MATE_DX / MATE_DZ (offset from Link, default 150 / 0), VOICE_PITCH,
 //         MATE_OFFLINE_AFTER (seconds: the mate disconnects then, for the leave scenarios),
 //         MATE_LEGACY=1 (publish as an older client does: a plain manifest with only Link.arc),
+//         MATE_WAVE=1 (the replayed pose's left arm joints swing between two angles every 1.5 s: shows the limbs follow the stream),
+//         MATE_FREEZE=1 (always the first recorded pose: the puppet stands still, with one expression),
+//         MATE_ATT="<arc>:<index>:<joints>:<kind>[:<height>]" (a model of a game archive held over the puppet's head, as a puppet with a carried or held object sends it),
+//         MATE_TURN=<degrees> (the base is turned about the vertical: 180 faces the puppet the other way),
+//         MATE_NOFACE=1 (the expression chunk is left out of the replayed pose: the puppet's face must not be the game's own Link's),
 //         MATE_GEAR=1 (the replayed pose has the Hero's Sword on the back and the Hero's Shield on the arm, as a player
 //         with them equipped sends them: the recorded Link may have none, and then the puppets' equipment models would not show).
 import { createHash } from 'node:crypto';
@@ -104,6 +109,34 @@ function withGear(pose) {
   return out;
 }
 
+// The wire's extension chunks (tag, s16 length, payload) follow the joints, the sword's and shield's places and the s16 proc.
+function dropChunks(pose, tags) {
+  let at = 32;
+  for (let i = 0; i < 42; i++) at += 14 + ((pose[26 + (i >> 3)] >> (i & 7)) & 1 ? 3 : 0);
+  at += (pose[3] ? 14 : 0) + (pose[4] ? 14 : 0) + 2;
+  const parts = [pose.subarray(0, at)];
+  while (at + 3 <= pose.length) {
+    const len = pose.readInt16LE(at + 1);
+    if (!tags.includes(pose[at])) parts.push(pose.subarray(at, at + 3 + len));
+    at += 3 + len;
+  }
+  return Buffer.concat(parts);
+}
+
+// An attachment chunk (EXT_ATTACH) holding one model of a game archive above the puppet's head, as a pose with a held or
+// carried object sends it: MATE_ATT="<arc>:<resource index>:<joint count>:<kind>[:<height>]" (kind 1 item in hand, 4 grab,
+// 6 throw, 9 item get). The model is not the PC's own: the archive may not be loaded there.
+function attachChunk(spec) {
+  const [arc, idx, nj, kind, height] = spec.split(':');
+  const xf = (y) => { const b = Buffer.alloc(14); b.writeInt16LE(32767, 6); b.writeInt16LE(Math.round(y * 8), 10); return b; }; // identity, up y
+  const y = Number(height || 150);
+  const head = Buffer.from([Number(kind), arc.length]);
+  const mid = Buffer.alloc(2); mid.writeInt16LE(Number(idx), 0);
+  const body = Buffer.concat([Buffer.from([1]), head, Buffer.from(arc, 'latin1'), mid, Buffer.from([Number(nj), 0]), xf(y), ...Array.from({ length: Number(nj) }, () => xf(y))]);
+  const tag = Buffer.alloc(3); tag[0] = 2; tag.writeInt16LE(body.length, 1);
+  return Buffer.concat([tag, body]);
+}
+
 let mateParts = null;
 const content = pack ? await publish(pack) : '';
 const mateName = process.env.MATE_NAME || 'Mate';
@@ -138,12 +171,32 @@ ws.onmessage = (e) => {
 // The recording again and again, moved so it starts where the game's Link now is, dx / dz units to his side.
 setInterval(() => {
   if (!frames.length || Date.now() - t0 < record * 1000 || !latest) return;
-  const f = frames[at++ % frames.length];
+  const f = frames[process.env.MATE_FREEZE ? 0 : at++ % frames.length];
   const first = frames[0];
   const pose = Buffer.from(f.pose, 'base64');
   const delta = [0, 1, 2].map((i) => f.pos[i] - first.pos[i] + latest.pos[i] + (i === 0 ? dx : i === 2 ? dz : 0) - f.pos[i]);
   for (let i = 0; i < 3; i++) pose.writeFloatLE(pose.readFloatLE(6 + 4 * i) + delta[i], 6 + 4 * i); // base position, wire byte 6
-  const sent = process.env.MATE_GEAR ? withGear(pose) : pose;
+  if (process.env.MATE_TURN) { // the puppet is turned this many degrees about the vertical (180: facing the camera behind Link)
+    const th = Number(process.env.MATE_TURN) * Math.PI / 360, qt = [0, Math.sin(th), 0, Math.cos(th)];
+    const a = [0, 1, 2, 3].map((k) => pose.readInt16LE(18 + 2 * k) / 32767);
+    const r = [qt[3] * a[0] + qt[0] * a[3] + qt[1] * a[2] - qt[2] * a[1], qt[3] * a[1] - qt[0] * a[2] + qt[1] * a[3] + qt[2] * a[0],
+               qt[3] * a[2] + qt[0] * a[1] - qt[1] * a[0] + qt[2] * a[3], qt[3] * a[3] - qt[0] * a[0] - qt[1] * a[1] - qt[2] * a[2]];
+    for (let k = 0; k < 4; k++) pose.writeInt16LE(Math.round(r[k] * 32767), 18 + 2 * k);
+  }
+  if (process.env.MATE_WAVE) { // the left arm's joints swing 90 degrees about a local axis every 1.5 s: the limb animation proof
+    const on = Math.floor(Date.now() / 750) % 2 === 0;
+    const h = Math.SQRT1_2, qr = on ? [0, 0, h, h] : [0, 0, 0, 1];
+    for (const j of [6, 7, 8]) {
+      const o = 32 + 14 * j; // (no scaled joints in the idle poses)
+      const a = [0, 1, 2, 3].map((k) => pose.readInt16LE(o + 2 * k) / 32767);
+      const r = [a[3] * qr[0] + a[0] * qr[3] + a[1] * qr[2] - a[2] * qr[1], a[3] * qr[1] - a[0] * qr[2] + a[1] * qr[3] + a[2] * qr[0],
+                 a[3] * qr[2] + a[0] * qr[1] - a[1] * qr[0] + a[2] * qr[3], a[3] * qr[3] - a[0] * qr[0] - a[1] * qr[1] - a[2] * qr[2]];
+      for (let k = 0; k < 4; k++) pose.writeInt16LE(Math.round(r[k] * 32767), o + 2 * k);
+    }
+  }
+  let sent = process.env.MATE_GEAR ? withGear(pose) : pose;
+  if (process.env.MATE_ATT) sent = Buffer.concat([sent, attachChunk(process.env.MATE_ATT)]);
+  if (process.env.MATE_NOFACE) sent = dropChunks(sent, [1]); // no expression in the stream (EXT_FACE)
   ws.send(JSON.stringify({ type: 'PLAYER_UPDATE', stage: f.stage, room: f.room, pos: [f.pos[0] + delta[0], f.pos[1] + delta[1], f.pos[2] + delta[2]],
     angle: f.angle, pose: sent.toString('base64') }));
 }, 100);

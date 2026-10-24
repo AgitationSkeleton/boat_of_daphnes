@@ -23,7 +23,8 @@ inline u32 phys(u32 a) { return a & 0x01FFFFFF; }
 // the end of MEM1, in the rest of the 32 MB guest window: no game code addresses that range, so
 // all of MEM1 stays laid out as the IPL leaves it (the game hardcodes buffers up near its top).
 constexpr u32 kHleRegion = 0x80000000 + kMem1Size;
-constexpr u32 kHleRegionEnd = 0x80000000 + kHostMemSize;
+// The top 4 MB are the puppets' fast pool (puppet.c, bluewake_puppet_fast_range), so the host's own objects stop below it.
+constexpr u32 kHleRegionEnd = 0x80000000 + kHostMemSize - 0x00400000;
 u32 hleAlloc(u32 size, u32 align = 32);
 // Widescreen changes to the game's code (src/runtime/tww.cpp), while their module is linked.
 void gameFixesLinked(u32 module);

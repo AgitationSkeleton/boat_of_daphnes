@@ -84,6 +84,7 @@ extern "C" {  // (C headers without their own guards)
 #include "gxruntime/dvd.h"
 }
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -164,7 +165,7 @@ CPUState s_cpu{};
 CPUState* cpu() {
     if (!s_cpu.ram) {
         s_cpu.ram = bod::guestRam();
-        s_cpu.ram_size = GC_MAIN_RAM_SIZE;
+        s_cpu.ram_size = 0x02000000u;  // the 32 MB window (ctx.h kHostMemSize): the game's 24 MB, then the puppets' fast pool
     }
     return &s_cpu;
 }
@@ -200,7 +201,37 @@ extern "C" void bod_guest_call_cpu(CPUState* c, u32 function) {
 }
 
 
+namespace rt {
+u32 hleAlloc(u32 size, u32 align);  // (runtime.h)
+}
+
 namespace rt::bod {
+namespace {
+// Testing: BLUEWAKE_TEST_GIVE=<retrace>:<item no> drops that item at Link's feet (fopAcM_createItem): he picks it up and holds it
+// up as he does for an item-get, which the puppets of the other players then show (a scenario cannot open a chest).
+void testGive(CPUState* c) {
+    static const char* const spec = std::getenv("BLUEWAKE_TEST_GIVE");
+    static bool done;
+    if (!spec || done) return;
+    const unsigned long long at = std::strtoull(spec, nullptr, 10);
+    const char* colon = std::strchr(spec, ':');
+    const u32 player = mem_read32(c, 0x803CA754u);
+    if (!colon || retraceCount() < at || player < 0x80000000u || player >= 0x81800000u) return;
+    done = true;
+    const u32 pos = hleAlloc(16, 16);
+    for (u32 i = 0; i < 3; ++i) mem_write32(c, pos + 4 * i, mem_read32(c, player + 0x1F8u + 4 * i));
+    c->gpr[3] = pos;
+    c->gpr[4] = u32(std::strtoul(colon + 1, nullptr, 0));
+    c->gpr[5] = 0xFFFFFFFFu;  // no item bit
+    c->gpr[6] = 0xFFFFFFFFu;  // room: the current one
+    c->gpr[7] = 0;            // param
+    c->gpr[8] = 0;            // angle
+    c->gpr[9] = 0;            // gravity type
+    c->gpr[10] = 0;           // scale
+    bod_guest_call_cpu(c, 0x80026ADCu);
+    std::fprintf(stderr, "[test] item %lu dropped at Link's feet\n", std::strtoul(colon + 1, nullptr, 0));
+}
+}  // namespace
 // As its host's boot (main.c): the features' attach, then each retrace their retrace work.
 void apiAttach() {
     bluewake_widescreen_attach(cpu());
@@ -302,6 +333,7 @@ unsigned apiHostHook(Regs regs, unsigned id, unsigned pc) {
     switch (id) {
     case 30:  // dScnPly_Draw: the gyro aiming, Reveal Sea Chart's panes, the puppets, the Bunny Hood, the autosave
         bod::gyroFrame();
+        testGive(c);
         r = bluewake_chart_reveal_hook(c, 0x80234F5Cu);
         if (!r) r = bluewake_puppet_hook(c, id);
         if (!r) r = bluewake_bunny_hood_draw_hook(c, 0x80234F5Cu);
