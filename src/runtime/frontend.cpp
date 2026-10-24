@@ -59,6 +59,7 @@ u64 hostGpuMemory();                           // src/runtime/hostgpu.cpp
 u64 viRetraces();                              // src/runtime/hle_hw.cpp
 extern std::atomic<bool> g_hostPaused;         // src/runtime/hle_hw.cpp
 void audioSetGain(float gain);                 // src/runtime/audio.cpp
+void gyroPoll(PADStatus& pad, u64 frame);      // src/runtime/gyro.cpp
 
 namespace {
 std::mutex s_padLock;
@@ -105,6 +106,7 @@ void auroraLog(AuroraLogLevel level, const char* module, const char* message, un
 u64 s_frameNo = 0;
 constexpr u64 kRelPress = 1ull << 63;
 constexpr u16 kStickLeft = 0x4000, kStickRight = 0x8000;  // bits no PAD button uses
+constexpr u16 kCStickUp = 0x2000, kCStickDown = 0x0080;  // (the C-stick, test runs: CU / CD)
 u16 scriptedButtons() {
     static const int s_rel = std::getenv("SA2_DUMP_REL") ? std::atoi(std::getenv("SA2_DUMP_REL")) & (kMaxModules - 1) : -1;
     static const std::vector<std::pair<u64, u16>> script = [] {
@@ -121,7 +123,8 @@ u16 scriptedButtons() {
             const u16 mask = b == "A" ? PAD_BUTTON_A : b == "B" ? PAD_BUTTON_B : b == "X" ? PAD_BUTTON_X
                            : b == "Y" ? PAD_BUTTON_Y : b == "START" ? PAD_BUTTON_START : b == "UP" ? PAD_BUTTON_UP
                            : b == "DOWN" ? PAD_BUTTON_DOWN : b == "LEFT" ? PAD_BUTTON_LEFT : b == "RIGHT" ? PAD_BUTTON_RIGHT
-                           : b == "SL" ? kStickLeft : b == "SR" ? kStickRight : 0;
+                           : b == "SL" ? kStickLeft : b == "SR" ? kStickRight : b == "CU" ? kCStickUp : b == "CD" ? kCStickDown
+                           : b == "R" ? PAD_TRIGGER_R : b == "L" ? PAD_TRIGGER_L : b == "Z" ? PAD_TRIGGER_Z : 0;
             v.push_back({frame, mask});
             if (*s == ',') s++;
         }
@@ -216,7 +219,9 @@ void pollPads() {
     st[0].button = bluewake_ui_pad_filter(st[0].button);
     bluewake_ui_pad_filter_axes(&st[0].stickX, &st[0].stickY);
     const u16 scripted = scriptedButtons();
-    st[0].button |= scripted & ~(kStickLeft | kStickRight);
+    st[0].button |= scripted & ~(kStickLeft | kStickRight | kCStickUp | kCStickDown);
+    if (scripted & kCStickUp) st[0].substickY = 100;
+    if (scripted & kCStickDown) st[0].substickY = -100;
     if (scripted & kStickLeft) st[0].stickX = -100;
     if (scripted & kStickRight) st[0].stickX = 100;
     // (scripted directions move the stick too: some menus read only the stick)
@@ -224,6 +229,9 @@ void pollPads() {
     if (scripted & PAD_BUTTON_DOWN) st[0].stickY = -100;
     if (scripted & PAD_BUTTON_LEFT) st[0].stickX = -100;
     if (scripted & PAD_BUTTON_RIGHT) st[0].stickX = 100;
+    // Gyro aiming (src/runtime/gyro.cpp): the controller's turning, for the game's aiming modes (applied on the game thread).
+    if (!(s_padUnfocusedBlock || bod::menuOpen())) gyroPoll(st[0], s_frameNo);
+    else gyroPoll(st[0], ~0ull);  // (no input while the menu or another window has it)
     s_viewerPad = st[0];  // the Input Viewer: what the game is handed on port 1
     // SA2_RUN (test runs): from 400 frames after the SA2_DUMP_REL module (a stage) linked, the stick
     // is held forward, so the player travels through the stage.

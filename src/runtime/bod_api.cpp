@@ -292,7 +292,8 @@ unsigned apiHostHook(Regs regs, unsigned id, unsigned pc) {
     const u32 lr = c->lr;
     unsigned r = 0;
     switch (id) {
-    case 30:  // dScnPly_Draw: Reveal Sea Chart's panes, the puppets, the Bunny Hood, the autosave
+    case 30:  // dScnPly_Draw: the gyro aiming, Reveal Sea Chart's panes, the puppets, the Bunny Hood, the autosave
+        bod::gyroFrame();
         r = bluewake_chart_reveal_hook(c, 0x80234F5Cu);
         if (!r) r = bluewake_puppet_hook(c, id);
         if (!r) r = bluewake_bunny_hood_draw_hook(c, 0x80234F5Cu);
