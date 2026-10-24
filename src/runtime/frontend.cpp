@@ -494,7 +494,7 @@ int runFrontend(int argc, char** argv, bool headless, u64 maxFrames, void (*star
     };
     // SA2_CPU_RENDERER: a software renderer will do (llvmpipe/WARP: tests in VMs, WSL)
     cfg.allowCpuAdapter = std::getenv("SA2_CPU_RENDERER") != nullptr;
-    SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON, "1");  // the window's icon: the program's (res/sa2b.rc)
+    SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON, "1");  // the window's icon: the program's (boat-of-daphnes.rc)
     SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON_SMALL, "1");
 #if !defined(_WIN32)
     // (Linux: the embedded one; the desktop matches the window to BoatOfDaphnes.desktop by its class)

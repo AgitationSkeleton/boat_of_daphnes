@@ -1,7 +1,7 @@
-// The application icon and version information.
+// The program's icon (a render of the King of Red Lions, assets/icon) and version information.
 #include <winver.h>
 
-1 ICON "../resources/BlueWake.ico"
+1 ICON "../../assets/icon/boat-of-daphnes.ico"
 
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION 0,1,0,0
@@ -13,8 +13,8 @@ BEGIN
     BEGIN
         BLOCK "040904B0"
         BEGIN
-            VALUE "FileDescription", "boat-of-daphnes (The Wind Waker static recompilation, a BlueWake fork)"
-            VALUE "ProductName", "boat-of-daphnes"
+            VALUE "FileDescription", "Boat of Daphnes (The Wind Waker static recompilation)"
+            VALUE "ProductName", "Boat of Daphnes"
             VALUE "FileVersion", "0.1"
             VALUE "ProductVersion", "0.1"
             VALUE "LegalCopyright", "GPL-3.0-or-later; game code is the player's own"

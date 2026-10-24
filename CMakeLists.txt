@@ -175,16 +175,16 @@ set(TWW_ICON_INC ${CMAKE_BINARY_DIR}/generated/app_icon.inc)
 if (NOT WIN32)
     # The window's icon on Linux (src/runtime/appicon.h): the PNG compiled in, as the GBA BIOS above. Windows takes it from
     # the program's resources.
-    file(READ ${BOD_DIR}/windows/resources/BlueWake.png _icon_hex HEX)
+    file(READ ${CMAKE_SOURCE_DIR}/assets/icon/boat-of-daphnes.png _icon_hex HEX)
     string(LENGTH "${_icon_hex}" _icon_hex_len)
     math(EXPR _icon_size "${_icon_hex_len} / 2")
     string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _icon_c "${_icon_hex}")
-    file(WRITE ${TWW_ICON_INC}.tmp "/* generated from src/bod/windows/resources/BlueWake.png */
+    file(WRITE ${TWW_ICON_INC}.tmp "/* generated from assets/icon/boat-of-daphnes.png */
 static const unsigned char kAppIconPng[] = {${_icon_c}};
 static const unsigned long kAppIconPngSize = ${_icon_size}ul;
 ")
     file(COPY_FILE ${TWW_ICON_INC}.tmp ${TWW_ICON_INC} ONLY_IF_DIFFERENT)
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${BOD_DIR}/windows/resources/BlueWake.png)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/assets/icon/boat-of-daphnes.png)
 endif ()
 file(GLOB RUNTIME_SOURCES CONFIGURE_DEPENDS src/runtime/*.cpp)
 # First-run setup (src/setup): the game's code built from the player's disc inside the program, with the files it
@@ -193,7 +193,14 @@ set(_setup_embed ${CMAKE_BINARY_DIR}/generated/setup_files.inc)
 add_custom_command(OUTPUT ${_setup_embed}
     COMMAND ${CMAKE_COMMAND} -DOUT=${_setup_embed} -DROOT=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/tools/setup/embed.cmake
     DEPENDS tools/setup/embed.cmake src/runtime/ctx.h src/runtime/modules.h src/runtime/abi.h src/game/glue.cpp config/GZLE01/names.txt)
-add_executable(tww ${RUNTIME_SOURCES} src/setup/firstrun.cpp src/setup/setup_ui.cpp ${_setup_embed})
+set(_tww_extra)
+if (WIN32)
+    # the program's icon (Explorer, taskbar, window; also the setup's window) and its version info
+    enable_language(RC)
+    set(_tww_extra src/runtime/boat-of-daphnes.rc)
+    set_property(SOURCE src/runtime/boat-of-daphnes.rc APPEND PROPERTY OBJECT_DEPENDS ${CMAKE_SOURCE_DIR}/assets/icon/boat-of-daphnes.ico)
+endif ()
+add_executable(tww ${RUNTIME_SOURCES} src/setup/firstrun.cpp src/setup/setup_ui.cpp ${_setup_embed} ${_tww_extra})
 # boat-of-daphnes.exe: what the player clicks (its import library, boat-of-daphnes.lib, is what the game modules link against)
 set_target_properties(tww PROPERTIES OUTPUT_NAME boat-of-daphnes)
 target_include_directories(tww PRIVATE src ${CMAKE_BINARY_DIR}/generated)

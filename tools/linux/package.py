@@ -155,7 +155,7 @@ def main():
     if os.path.exists("src/bod/LICENSE"):
         put("src/bod/LICENSE", out, "licenses/boat-of-daphnes-LICENSE.txt")
     put("assets/fonts/OFL.txt", out, "licenses/RocknRollOne-OFL.txt")
-    put("src/bod/windows/resources/BlueWake.png", out, "boat-of-daphnes.png")
+    put("assets/icon/boat-of-daphnes.png", out, "boat-of-daphnes.png")
     put("tools/linux/BoatOfDaphnes.desktop", out, "BoatOfDaphnes.desktop")
     put("tools/linux/install-menu-entry.sh", out, "install-menu-entry.sh", 0o755)
     put("tools/linux/51-gcadapter.rules", out, "51-gcadapter.rules")
