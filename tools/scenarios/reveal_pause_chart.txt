@@ -1,0 +1,30 @@
+description BR-0048: Reveal Sea Chart on, the pause-menu Sea Chart (D-pad up): moving the cursor to squares the save has not visited shows their names, also when opened again
+save 2-Pictobox
+start load
+wait link
+reveal 1
+give SeaChart
+flag set event 0x0908
+press UP
+wait 200
+shot p0
+stick 110 0 12
+wait 100
+shot p1
+stick 110 0 12
+wait 100
+shot p2
+stick 0 -110 12
+wait 100
+shot p3
+press B
+wait 240
+press UP
+wait 200
+stick 110 0 12
+wait 100
+shot q1
+stick 110 0 12
+wait 100
+shot q2
+expect (?s)put in.*put in.*put in
