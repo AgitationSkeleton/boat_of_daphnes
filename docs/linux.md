@@ -8,7 +8,7 @@ disc on your own PC (`src/setup/firstrun.cpp`), as on Windows, and the result st
 
 - 64-bit Linux, glibc 2.38 or newer (Ubuntu 24.04, Debian 13, Fedora 39, current Arch and SteamOS), a CPU with AVX2 and a
   Vulkan driver (Mesa for AMD and Intel, the NVIDIA driver).
-- Libraries every desktop has: `libssl3`, `libpng16`, `libfreetype6`, SDL3's own (X11 or Wayland, ALSA, PulseAudio or
+- Libraries every desktop has: `libssl3`, `libpng16`, `libfreetype6`, `libsqlite3`, SDL3's own (X11 or Wayland, ALSA, PulseAudio or
   PipeWire, libudev) and `libxml2` for the bundled linker.
 - Your own USA disc image of The Wind Waker (`GZLE01`, revision 0): `.iso`, `.gcm`, `.ciso`, `.rvz` or `.wia`.
 - About 4 GB of free space in `~/.cache` for the build (it is removed when the build ends) and a few GB beside the

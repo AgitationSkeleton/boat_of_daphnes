@@ -27,6 +27,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 SYSTEM_LIBS = {
     "ld-linux-x86-64.so.2", "libc.so.6", "libm.so.6", "libdl.so.2", "libpthread.so.0", "librt.so.1", "libgcc_s.so.1",
     "libstdc++.so.6", "libz.so.1", "libssl.so.3", "libcrypto.so.3", "libpng16.so.16", "libfreetype.so.6",
+    "libsqlite3.so.0",  # Aurora takes the system SQLite when one is installed (every desktop distribution has it)
 }
 FORBIDDEN = ["tww_game.so", "tww_game_rando.so", "tww_game.txt", "tww_game_rando.txt", "tww_game_rando.diff", "game",
              "assets/link_colors", "assets/swift_sail", "assets/bunnyhood", "Save", "saves", "Randomizer", "logs"]
