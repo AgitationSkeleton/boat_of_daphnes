@@ -1211,11 +1211,18 @@ void update_puppets(bool connected) {
         if (self_colors != nullptr)
             link_colors::SetPlayerColors(1000, self_colors);
         // My colors changed in the Cosmetics Editor: tell the room.
+        // A colour picker being dragged changes the spec every frame: the first change goes at once, then at most one
+        // message a second, the last value always (the others re-apply the player's textures on each one).
         static std::string sent_colors;
+        static Uint64 sent_at = 0;
         const std::string mine = share_content() ? link_colors::LocalSpec() : std::string();
-        if (connected && mine != sent_colors)
+        if (!connected)
+            sent_colors = mine;
+        else if (mine != sent_colors && (sent_at == 0 || SDL_GetTicks() - sent_at >= 1000)) {
             send_state();
-        sent_colors = mine;
+            sent_colors = mine;
+            sent_at = SDL_GetTicks();
+        }
     }
     const bool puppets = true; // always Link models (the setting was removed)
     bluewake_puppet_enable(connected || self_set, puppets || self_set);
