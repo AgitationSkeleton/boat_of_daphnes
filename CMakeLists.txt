@@ -193,6 +193,13 @@ target_include_directories(tww PRIVATE ${CMAKE_SOURCE_DIR}/extern/aurora/lib)
 if (UNIX)
     target_link_libraries(tww PRIVATE ${CMAKE_DL_LIBS})
 endif ()
+if (UNIX AND NOT APPLE)
+    # The release asks nothing of the player's libstdc++ (the game's modules are freestanding and never see it).
+    option(BOD_STATIC_STDLIB "Link libstdc++ and libgcc into the program" OFF)
+    if (BOD_STATIC_STDLIB)
+        target_link_options(tww PRIVATE -static-libstdc++ -static-libgcc)
+    endif ()
+endif ()
 if (WIN32)
     add_custom_command(TARGET tww POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:tww> $<TARGET_FILE_DIR:tww>
