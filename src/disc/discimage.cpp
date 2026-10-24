@@ -1,5 +1,6 @@
 #include "disc/discimage.h"
 
+#include <zlib.h>
 #include <zstd.h>
 
 #include <algorithm>
@@ -54,18 +55,86 @@ private:
 // ---- .iso / .gcm ----
 class Iso final : public Image {
 public:
-    explicit Iso(std::unique_ptr<File> f) : f_(std::move(f)), size_(f_->length()) {}
+    explicit Iso(std::unique_ptr<File> f) : f_(std::move(f)), size_(f_->length()) {
+        // An NKit image is a disc of its own layout (junk between the files removed, its file table moved to match) with
+        // "NKIT" in the header at 0x200: read through the file table, as any disc is, it is whole.
+        uint8_t tag[4] = {};
+        nkit_ = f_->read(0x200, tag, 4) && std::memcmp(tag, "NKIT", 4) == 0;
+    }
     bool read(uint64_t off, void* dst, size_t n) override {
         std::lock_guard g(m_);
         return off + n <= size_ && f_->read(off, dst, n);
     }
     uint64_t size() const override { return size_; }
-    const char* format() const override { return "ISO"; }
+    const char* format() const override { return nkit_ ? "NKIT" : "ISO"; }
 
 private:
     std::mutex m_;
     std::unique_ptr<File> f_;
     uint64_t size_;
+    bool nkit_ = false;
+};
+
+// ---- .gcz (Dolphin's older compressed format: 32-byte header, a table of block offsets (bit 63: stored as is) and of
+// Adler-32 hashes, then the zlib-compressed blocks) ----
+class Gcz final : public Image {
+public:
+    bool init(std::unique_ptr<File> f, std::string& err) {
+        f_ = std::move(f);
+        uint8_t h[32];
+        if (!f_->read(0, h, sizeof h)) return err = "too short for a GCZ file", false;
+        auto le32 = [](const uint8_t* p) { return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24; };
+        auto le64 = [&](const uint8_t* p) { return uint64_t(le32(p)) | uint64_t(le32(p + 4)) << 32; };
+        packed_ = le64(h + 8);
+        size_ = le64(h + 16);
+        block_ = le32(h + 24);
+        const uint32_t n = le32(h + 28);
+        if (block_ == 0 || block_ > (64u << 20) || n == 0 || uint64_t(n) * block_ < size_) return err = "damaged GCZ header", false;
+        std::vector<uint8_t> t(size_t(n) * 8);
+        if (!f_->read(sizeof h, t.data(), t.size())) return err = "damaged GCZ block table", false;
+        for (uint32_t i = 0; i < n; i++) offsets_.push_back(le64(&t[size_t(i) * 8]));
+        data_ = sizeof h + uint64_t(n) * 12;
+        return true;
+    }
+    bool read(uint64_t off, void* dst, size_t n) override {
+        std::lock_guard g(m_);
+        auto* out = static_cast<uint8_t*>(dst);
+        if (off + n > size_) return false;
+        while (n) {
+            const uint64_t b = off / block_, inner = off % block_;
+            const size_t k = size_t(std::min<uint64_t>(n, block_ - inner));
+            if (b != cachedBlock_ && !load(b)) return false;
+            std::memcpy(out, cache_.data() + inner, k);
+            off += k, out += k, n -= k;
+        }
+        return true;
+    }
+    uint64_t size() const override { return size_; }
+    const char* format() const override { return "GCZ"; }
+
+private:
+    bool load(uint64_t b) {
+        const uint64_t raw = offsets_[size_t(b)], start = raw & ~(1ull << 63);
+        const uint64_t end = b + 1 < offsets_.size() ? (offsets_[size_t(b) + 1] & ~(1ull << 63)) : packed_;
+        if (end < start || end - start > (128u << 20)) return false;
+        std::vector<uint8_t> in(size_t(end - start));
+        if (!f_->read(data_ + start, in.data(), in.size())) return false;
+        cache_.assign(block_, 0);
+        if (raw >> 63) {
+            std::memcpy(cache_.data(), in.data(), std::min<size_t>(in.size(), block_));
+        } else {
+            uLongf got = block_;
+            if (uncompress(cache_.data(), &got, in.data(), uLong(in.size())) != Z_OK) return false;
+        }
+        cachedBlock_ = b;
+        return true;
+    }
+    std::mutex m_;
+    std::unique_ptr<File> f_;
+    uint32_t block_ = 0;
+    uint64_t size_ = 0, packed_ = 0, data_ = 0, cachedBlock_ = ~0ull;
+    std::vector<uint64_t> offsets_;
+    std::vector<uint8_t> cache_;
 };
 
 // ---- .ciso ----
@@ -149,7 +218,7 @@ public:
         chunk_ = be32(&d[12]);
         std::memcpy(dhead_, &d[16], 0x80);
         if (be32(&d[0x90])) return err = "a Wii disc (only GameCube discs are supported)", false;
-        if (comp_ != 0 && comp_ != 5) return err = "compressed with bzip2/LZMA (convert it to RVZ with Zstandard, or ISO, in Dolphin)", false;
+        if (comp_ != 0 && comp_ != 5) return err = "a WIA file compressed with Purge/bzip2/LZMA, which Boat of Daphnes cannot read (convert it to ISO or RVZ in Dolphin)", false;
         if (chunk_ < 0x8000) return err = "bad RVZ chunk size", false;
         const uint32_t nRaw = be32(&d[0xB4]), rawSize = be32(&d[0xC0]), nGroups = be32(&d[0xC4]), groupSize = be32(&d[0xD0]);
         const uint64_t rawOff = be64(&d[0xB8]), groupOff = be64(&d[0xC8]);
@@ -302,6 +371,11 @@ std::unique_ptr<Image> open(const std::filesystem::path& path, std::string& erro
     }
     if (std::memcmp(magic, "RVZ\x01", 4) == 0 || std::memcmp(magic, "WIA\x01", 4) == 0) {
         auto img = std::make_unique<Rvz>();
+        if (!img->init(std::move(f), error)) return nullptr;
+        return img;
+    }
+    if (magic[0] == 0x01 && magic[1] == 0xC0 && magic[2] == 0x0B && magic[3] == 0xB1) {  // 0xB10BC001, little-endian
+        auto img = std::make_unique<Gcz>();
         if (!img->init(std::move(f), error)) return nullptr;
         return img;
     }

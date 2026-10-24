@@ -46,7 +46,7 @@ std::string embedded(const char* path) {
 
 constexpr const char* kGameId = "GZLE01";
 // The program the recompiler is made for: main.dol of The Wind Waker (USA, revision 0). The disc image may be any
-// dump of it (.iso, .ciso, .rvz): the program is what counts.
+// dump of it (.iso, .nkit.iso, .ciso, .gcz, .rvz, .wia): the program is what counts.
 constexpr const char* kDolSha1 = "8d28bab68bb5078c38e43f29206f0bd01f7e7a67";
 // ... and wwrando 1.10.0's reference run of it (src/runtime/bod_rando.cpp's site tables are made for this one).
 constexpr const char* kRandoDolSha1 = "d05afaa1a6ca0c19ccde1a8fcb3e3e2a2a794524";
@@ -667,7 +667,7 @@ bool FirstRun::link(int step, const fs::path& objDir, const char* dll) {
 }
 
 // wwrando's reference run (its code for every option, seed independent) of the player's disc: game/rando/GZLE99.iso.
-// wwrando reads plain ISO images only: another kind (.ciso, .rvz) is written out as one first, as game/GZLE01.iso, where
+// wwrando reads plain ISO images only: another kind (.ciso, .rvz, .gcz, .wia) is written out as one first, as game/GZLE01.iso, where
 // the seed generator also finds the disc.
 bool FirstRun::patchRando() {
     std::error_code ec;
@@ -679,7 +679,7 @@ bool FirstRun::patchRando() {
         std::string err;
         auto img = disc::open(m_disc, err);
         if (!img) return fail("Can't read the disc image: " + err + ".");
-        if (std::string(img->format()) == "ISO") {
+        if (const std::string kind = img->format(); kind == "ISO" || kind == "NKIT") {  // (an NKit disc has a file table of its own: wwrando reads it whole)
             iso = m_disc;
         } else if (!fs::exists(iso, ec) || fs::file_size(iso, ec) != img->size()) {
             std::ofstream out(iso, std::ios::binary);
