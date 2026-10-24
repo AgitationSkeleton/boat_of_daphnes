@@ -284,6 +284,7 @@ void apiRetrace() {
     if (s_fmapAt > 0 && !s_fmapDone && retraceCount() >= u64(s_fmapAt)) s_fmapDone = true, mem_write8(cpu(), 0x803CA7F9u, 1);
     bluewake_cosmetics_retrace(cpu());
     bluewake_game_state_retrace(cpu());
+    testScriptRetrace();  // BLUEWAKE_TEST_SCRIPT (bod_testscript.cpp)
     bluewake_fast_load_retrace(0);
     bluewake_quick_doors_retrace();
     bluewake_haptics_retrace();

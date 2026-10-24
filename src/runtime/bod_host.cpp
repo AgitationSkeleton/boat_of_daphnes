@@ -213,11 +213,13 @@ void drawFpsOverlay() {
 
 namespace rt {
 u64 viRetraces();  // src/runtime/hle_hw.cpp
+extern std::atomic<bool> g_stopRequested;  // src/runtime/dispatch.cpp
 }
 
 namespace rt::bod {
 unsigned char* guestRam() { return hostp(0x80000000u); }
 unsigned long long retraceCount() { return viRetraces(); }
+void requestStop() { g_stopRequested = true; }
 
 namespace {
 Regs regsOf(Ctx& c) { return Regs{c.r, c.f, c.ps1, &c.lr, &c.ctr, c.cr}; }

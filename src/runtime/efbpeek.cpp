@@ -8,6 +8,7 @@
 //    frames after the shutter - the game reads the result only when the player confirms the picture.
 //  * depth peeks (the sun's lens flare, the lantern's glow, the fireflies): the game's choice of
 //    visible or hidden follows the previous frame's depth, as it does on a busy console.
+#include "runtime/bod_bridge.h"
 #include "runtime/gx.h"
 #include "runtime/runtime.h"
 
@@ -280,6 +281,7 @@ HLE(dSnap_Execute__Fv) {
     }();
     if (s_log && gxFrames() % 120 == 0) log("[efb] frame %llu: dSnap_Execute runs\n", (unsigned long long)gxFrames());
     bool released = false;
+    if (rt::bod::testScriptSnap()) released = true, guestCall(c, guestSymbol("dSnap_ReleaseShutter__Fv"));  // (a scenario's `snap`)
     for (u64 f : s_at)
         if (f == gxFrames()) released = true, guestCall(c, guestSymbol("dSnap_ReleaseShutter__Fv"));
     s_orig(c);

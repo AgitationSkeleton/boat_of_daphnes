@@ -35,6 +35,15 @@ struct Regs {
 };
 unsigned char* guestRam();           // main memory (24 MiB, big-endian), as its CPUState's ram
 unsigned long long retraceCount();
+void requestStop();                  // bod_host.cpp: the run ends at the frontend's next frame (test scripts)
+// bod_testscript.cpp: BLUEWAKE_TEST_SCRIPT, a scenario's host side (docs/scenarios.md).
+void testScriptRetrace();            // each retrace, on the game thread
+// The scripted input for port 1 (button bits as PAD_*; sticks -128..127): true while the script drives anything.
+bool testScriptPad(uint16_t* buttons, int8_t* stickX, int8_t* stickY, int8_t* cstickX, int8_t* cstickY);
+// A frame dump the script asked for, taken from the next presented frame (path written to out): true once per request.
+bool testScriptShot(char* out, unsigned size);
+// The script's `snap`: release the Picto Box's shutter at the next dSnap_Execute (efbpeek.cpp): true once per request.
+bool testScriptSnap();
 // bod_api.cpp: its host code on its CPUState.
 void apiAttach();                                       // once, before the game runs
 void apiRetrace();                                      // each retrace, on the game thread

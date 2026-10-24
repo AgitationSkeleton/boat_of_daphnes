@@ -1,0 +1,14 @@
+description BR-0048: with Reveal Sea Chart on, the island names show on the Sea Chart (opened as the Ballad of Gales does)
+save 2-Pictobox
+start load
+wait link
+reveal 1
+poke 0x803CA7F9=1/1
+wait 240
+shot chart
+stick 60 0 30
+wait 120
+shot chart_moved
+stick -60 -60 30
+wait 120
+shot chart_moved2

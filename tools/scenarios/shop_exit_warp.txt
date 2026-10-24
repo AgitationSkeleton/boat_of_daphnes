@@ -1,0 +1,15 @@
+description BR-0042: warp into Beedle's shop ship at Windfall (not through its door), walk out: Link must stand on the ship's deck at sea
+save 2-Pictobox
+start load
+wait link
+warp Obshop 3 0
+console pos
+stick 0 -100 400
+wait 30
+wait stage sea 11
+console pos
+log shop_exit_done
+shot outside
+expect \[script\] shop_exit_done
+expect pos -> stage sea room 11
+expect_not Failed assertion|CRASH|FATAL

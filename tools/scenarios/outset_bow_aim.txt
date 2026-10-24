@@ -1,0 +1,22 @@
+description Outset with the bow: draw it (first-person aim), aim with the stick, put it away; the game's aiming status bits follow
+# The player status word at 0x803CA8D0 (play.mPlayerStatus[0]): 0x1000 is the bow's aim, 0x2000 the first-person look.
+save 2-Pictobox
+start load
+wait link
+warp sea 44 0
+give bow
+equip X bow
+wait 60
+peek 0x803CA8D0/4 before
+press X 10
+wait 90
+peek 0x803CA8D0/4 aiming
+stick 100 0 40
+wait 30
+shot aim
+press B 10
+wait 60
+peek 0x803CA8D0/4 after
+expect_peek before !& 0x1000
+expect_peek aiming & 0x1000
+expect_peek after !& 0x1000
