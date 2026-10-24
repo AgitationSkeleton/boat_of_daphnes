@@ -777,6 +777,7 @@ int runFrontend(int argc, char** argv, bool headless, u64 maxFrames, void (*star
         }
         lastShown = shown.get();
         lastT = t;
+        bod::g_blendT = t;  // for what the overlay draws against the frame (a puppet's name tag)
         held[kb] = std::move(shown);
         const double c1 = gxNow();
         s_tBuild += c1 - c0;

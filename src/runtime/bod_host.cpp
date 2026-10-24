@@ -168,6 +168,7 @@ std::atomic<int> g_integerScale{0};
 std::atomic<unsigned> g_anisotropy{1};
 std::atomic<unsigned long long> g_shown{0};
 std::atomic<float> g_gameFps{0.f};
+std::atomic<float> g_blendT{1.f};
 std::atomic<bool> g_fastForward{false}, g_presentSuppressed{false};
 std::atomic<float> s_shownFps{0.f};
 

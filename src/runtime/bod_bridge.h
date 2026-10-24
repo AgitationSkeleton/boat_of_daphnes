@@ -13,6 +13,7 @@ void introSkipSet(bool on);
 extern std::atomic<bool> g_interp, g_fpsOverlay;
 extern std::atomic<int> g_interpSteps, g_integerScale;
 extern std::atomic<float> g_bufferScale, g_bufferAspect, g_masterVolume, g_gameFps;
+extern std::atomic<float> g_blendT;  // the frame being drawn's weight between the older game frame (0) and the newer (1)
 extern std::atomic<unsigned> g_anisotropy;
 extern std::atomic<unsigned long long> g_shown;
 extern std::atomic<bool> g_resetRequested;  // the game asked for a console reset (hle_os OSResetSystem)

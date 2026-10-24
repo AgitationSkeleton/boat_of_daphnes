@@ -806,10 +806,15 @@ void draw_markers() {
             clip[r] = m[r * 4] * v[0] + m[r * 4 + 1] * v[1] + m[r * 4 + 2] * v[2] + m[r * 4 + 3] * v[3];
         ImVec2 at((clip[0] / clip[3] * 0.5f + 0.5f) * size.x, (0.5f - clip[1] / clip[3] * 0.5f) * size.y);
         // A puppet's tag follows what the renderer shows: the head against the camera of each of the last two game frames
-        // (not this frame's head with the camera of the frame before), at the weight between the in-between frame shown
-        // first and the real one after it.
+        // (not this frame's head with the camera of the frame before), at the weight of the frame being drawn between them
+        // (the renderer's own blend: 0.5 for the first in-between frame at 60 Hz, 0.25 / 0.5 / 0.75 at 120 Hz, 1 for a real one).
         float ndc[3];
-        if (model && bluewake_puppet_tag(id, aurora_get_frame_interpolation() ? 0.75f : 1.f, ndc)) {
+        const float tag_weight = aurora_get_frame_interpolation() ? aurora_get_frame_blend() : 1.f;
+        if (model && bluewake_puppet_tag(id, tag_weight, ndc)) {
+            static const bool log_weights = std::getenv("BLUEWAKE_TAG_LOG") != nullptr; // testing: the weights the tags were drawn at
+            static int logged_weights;
+            if (log_weights && logged_weights++ < 40)
+                std::fprintf(stderr, "[anchor] tag weight %.3f\n", static_cast<double>(tag_weight));
             clip[3] = ndc[2];
             at = ImVec2((ndc[0] * 0.5f + 0.5f) * size.x, (0.5f - ndc[1] * 0.5f) * size.y);
         }
@@ -859,6 +864,20 @@ void pvp_frame(bool connected, bool self_set) {
     static const char* test = std::getenv("BLUEWAKE_PVP_TEST");
     carry::set_room_allowed(connected && g_room_carry);
     carry::frame(connected, carry_env());
+    {
+        // A bomb another player threw went off beside me (the host made a harmless copy of it): it hurts only where the room's PvP
+        // rules let that player hit me (on, and not a teammate unless friendly fire is on); a bomb's hit is the game's own fixed one.
+        int from = 0;
+        float at[3];
+        if (bluewake_puppet_take_blast(&from, at) && connected) {
+            const auto it = g_players.find(from);
+            if (it != g_players.end() && g_room_pvp == BLUEWAKE_PVP_ON && pvp_allowed(it->second)) {
+                std::fprintf(stderr, "[anchor] player %d's bomb went off beside me: PvP is on, I am hit\n", from);
+                bluewake_pvp_incoming(from, 1, 0x20u, at);
+            } else
+                std::fprintf(stderr, "[anchor] player %d's bomb went off beside me: no hit under the room's rules\n", from);
+        }
+    }
     if (connected) {
         bluewake_pvp_set_rules(g_room_collision, g_room_pvp, g_room_pvp_scale);
         const BluewakeLocation where = bluewake_game_location();
@@ -969,6 +988,8 @@ int equipment_slot(const std::string& name) {
 void puppet_gone(int id) {
     carry::player_gone(id);
     g_puppet_content.erase(id);
+    link_colors::SetPlayerModel(id, nullptr);
+    link_colors::ForgetPlayer(id);
     {
         std::lock_guard<std::mutex> lock(g_bank_mutex);
         g_player_bank.erase(id);
@@ -1059,6 +1080,7 @@ void apply_content(const content::Ready& r) {
     pc.body = r.has_body;
     pc.hash = r.hash;
     pc.equipment = r.has_equipment;
+    link_colors::SetPlayerModel(r.id, r.colors); // their model's colors (null: none)
     pc.supplied_body = pc.supplied_equipment = pc.supplied_hands = false; // replaced below or by sync_stock_models
     pc.voice_set = true; // (set below: the pack's voice, or the game's)
     if (r.has_body)
@@ -1094,6 +1116,7 @@ void apply_content(const content::Ready& r) {
 void clear_content(int id) {
     PuppetContent& pc = g_puppet_content[id];
     pc = PuppetContent{};
+    link_colors::SetPlayerModel(id, nullptr);
     bluewake_puppet_remote_model(id, nullptr, 0);
     for (int slot = 0; slot < 8; ++slot)
         bluewake_puppet_remote_equipment(id, slot, nullptr, 0);

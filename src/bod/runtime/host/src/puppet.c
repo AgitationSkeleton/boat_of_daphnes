@@ -113,6 +113,29 @@ enum {
     SIMPLE_TEX = 0x803E229Cu,                // dDlst_shadowControl_c::mSimpleTexObj
     SHADOW_CASTER_SIZE = 700,                // daPy_HIO_basic_c0::m's shadow size (his drawShadow)
     PUPPET_FACE_MAX = 32,
+    // His eyes (daPy_matAnm_c): the pupils move by the texture matrix of the eye materials, whose scroll the material animation
+    // (J3DTexMtxAnm) sets each frame. J3DMaterial: mTexGenBlock +0x28, whose mTexMtx[8] +0x28 are J3DTexMtx, whose mSRT +0x10
+    // holds the translation (x +0x1C, y +0x20); J3DMaterialAnm: mTexMtxAnm[8] +0x0C.
+    EYE_MAX = 4,
+    // Bombs (daBomb_c, daBomb2::Act_c): the sender lists the ones he took out or threw, the receiver makes a harmless bomb of the
+    // game's own for each (see bombs_fiber).
+    BOMB_MAX = 4,
+    PROC_BOMB = 0x128, PROC_BOMB2 = 0x129,        // fpcNm_BOMB_e, fpcNm_Bomb2_e
+    BOMB_REST_TIME = 0x6FCu,                      // daBomb_c::mRestTime (s16): frames to the explosion, 0 once it has gone off
+    BOMB2_STATE = 0x694u, BOMB2_TIMER = 0x738u,   // daBomb2::Act_c::mState (2: exploding), mBombTimer (int)
+    BOMB_STATE_FREE = 1,                          // daBomb_c::State_e: lit and lying about (0 explodes at once, 3 is Link's)
+    FN_FAST_CREATE = 0x80024614u,                 // fopAcM_fastCreate(procName, parameter, pos, roomNo, angle, scale, subtype, createFunc, arg)
+    FN_ACTOR_DELETE_ID = 0x800244B8u,             // fopAcM_delete(process id)
+    FN_BOMB_NO_HIT = 0x80068068u,                 // daBomb_c::setBombNoHit()
+    FN_BOMB_SET_REST = 0x800681CCu,               // daBomb_c::setBombRestTime(s16)
+    AC_ATTN_FLAGS = 0x280u,                       // fopAc_ac_c::attention_info.flags
+    MAT_TEXGEN_BLOCK = 0x28u,
+    TEXGEN_TEXMTX = 0x28u,
+    TEXMTX_TRANS_X = 0x1Cu,
+    TEXMTX_TRANS_Y = 0x20u,
+    MATANM_TEXMTX = 0x0Cu,
+    EYE_MOVE_FLAG = 0x803F6F20u,    // daPy_matAnm_c::m_eye_move_flg (his pupils follow where he looks)
+    EYE_MORF_FRAME = 0x803F6F21u,   // m_morf_frame (frames left of the glide back from that)
 
     // Things he wears and holds (daPy_lk_c, GZLE01).
     PLAYER_NO_RESET_FLG0 = 0x29Cu,
@@ -326,6 +349,21 @@ typedef struct FaceTex {
     uint16_t tex;
 } FaceTex;
 
+// The scroll of one texture matrix of a material with a texture-matrix animation (the pupils): where the eye looks.
+typedef struct EyeTex {
+    uint8_t mat, slot;
+    float x, y;
+} EyeTex;
+
+// A bomb the player holds or has thrown (or that has just gone off): which one (his own numbering), what it is, what it is doing
+// and for how long yet, where it is (the world) and, held, where in his hands (relative to his base, so that it stays in them).
+typedef struct BombTrack {
+    uint8_t id, kind;   // kind 0: a bomb (daBomb_c), 1: a bomb flower's (daBomb2)
+    uint8_t state;      // 0 held, 1 free, 2 exploded
+    int16_t rest;       // frames to the explosion
+    float pos[3], rel[3];
+} BombTrack;
+
 // Something the player has in hand or on (a model of the game's resources) found by the archive and index it is in, with
 // where it is and, for models with joints of their own, where those are, all relative to the pose's base.
 enum { ATT_MAX = 6, ATT_JOINTS = 40, ATT_ARC = 14 };
@@ -349,6 +387,10 @@ typedef struct Pose {
     // Added after the first wire version (extension blocks after the proc: older builds stop at the proc and ignore them).
     uint8_t face_n;
     FaceTex face[PUPPET_FACE_MAX];
+    uint8_t eye_n;   // 0: not sent (an older sender's pose, or a model without eye animation): the pupils look ahead
+    EyeTex eye[EYE_MAX];
+    uint8_t bomb_n;
+    BombTrack bomb[BOMB_MAX];
     uint8_t att_n;
     PoseAtt att[ATT_MAX];
     bool sail;       // the ship's sail: where it is (relative to the base) and its 85 cloth points in its own space
@@ -410,7 +452,7 @@ static const uint8_t* xf_get(const uint8_t* at, Xf* x, bool scaled) {
 }
 
 // The extension blocks after the proc: tag (u8), length (u16), contents. A reader skips tags it does not know.
-enum { EXT_FACE = 1, EXT_ATTACH = 2, EXT_TIME = 3, EXT_LINE = 4, EXT_SAIL = 5 };
+enum { EXT_FACE = 1, EXT_ATTACH = 2, EXT_TIME = 3, EXT_LINE = 4, EXT_SAIL = 5, EXT_EYE = 6, EXT_BOMB = 7 };
 
 static uint8_t* ext_begin(uint8_t* at, uint8_t tag) {
     at[0] = tag;
@@ -463,6 +505,40 @@ static uint8_t* ext_encode(const Pose* p, uint8_t* at, uint8_t* limit) {
         }
         at = ext_end(head, at);
     }
+    if (p->eye_n != 0 && at + 3 + 1 + 6 * p->eye_n <= limit) {
+        // Where his pupils look: per eye material (index, texture matrix slot) the scroll as s16 in 1/8192 of a texture.
+        uint8_t* head = at;
+        at = ext_begin(at, EXT_EYE);
+        *at++ = p->eye_n;
+        for (int i = 0; i < p->eye_n; ++i) {
+            *at++ = p->eye[i].mat;
+            *at++ = p->eye[i].slot;
+            for (int k = 0; k < 2; ++k, at += 2) {
+                const float r = roundf((k == 0 ? p->eye[i].x : p->eye[i].y) * 8192.0f);
+                put16(at, (int16_t)(r > 32767.0f ? 32767.0f : r < -32767.0f ? -32767.0f : r));
+            }
+        }
+        at = ext_end(head, at);
+    }
+    if (p->bomb_n != 0 && at + 3 + 1 + 23 * p->bomb_n <= limit) {
+        // His bombs: id, kind, state, the frames to go (s16), the world place (3 floats) and the place in his hands (3 x s16, 1/8).
+        uint8_t* head = at;
+        at = ext_begin(at, EXT_BOMB);
+        *at++ = p->bomb_n;
+        for (int i = 0; i < p->bomb_n; ++i) {
+            const BombTrack* b = &p->bomb[i];
+            *at++ = b->id;
+            *at++ = b->kind;
+            *at++ = b->state;
+            put16(at, b->rest);
+            at += 2;
+            memcpy(at, b->pos, 12);
+            at += 12;
+            for (int k = 0; k < 3; ++k, at += 2)
+                put16(at, t8(b->rel[k]));
+        }
+        at = ext_end(head, at);
+    }
     if (p->att_n != 0) {
         uint8_t* head = at;
         at = ext_begin(at, EXT_ATTACH);
@@ -496,6 +572,8 @@ static uint8_t* ext_encode(const Pose* p, uint8_t* at, uint8_t* limit) {
 
 static void ext_decode(const uint8_t* at, const uint8_t* end, Pose* p) {
     p->face_n = 0;
+    p->eye_n = 0;
+    p->bomb_n = 0;
     p->att_n = 0;
     p->has_time = false;
     p->line_n = 0;
@@ -533,6 +611,28 @@ static void ext_decode(const uint8_t* at, const uint8_t* end, Pose* p) {
                 p->face[i].slot = block[2 + 4 * i];
                 p->face[i].tex = (uint16_t)get16(block + 3 + 4 * i);
                 p->face_n = (uint8_t)(i + 1);
+            }
+        } else if (tag == EXT_EYE && len >= 1) {
+            for (int i = 0; i < block[0] && i < EYE_MAX && block + 1 + 6 * (i + 1) <= block_end; ++i) {
+                const uint8_t* b = block + 1 + 6 * i;
+                p->eye[i].mat = b[0];
+                p->eye[i].slot = b[1];
+                p->eye[i].x = (float)get16(b + 2) / 8192.0f;
+                p->eye[i].y = (float)get16(b + 4) / 8192.0f;
+                p->eye_n = (uint8_t)(i + 1);
+            }
+        } else if (tag == EXT_BOMB && len >= 1) {
+            for (int i = 0; i < block[0] && i < BOMB_MAX && block + 1 + 23 * (i + 1) <= block_end; ++i) {
+                const uint8_t* b = block + 1 + 23 * i;
+                BombTrack* t = &p->bomb[i];
+                t->id = b[0];
+                t->kind = b[1] > 1 ? 0 : b[1];
+                t->state = b[2] > 2 ? 1 : b[2];
+                t->rest = get16(b + 3);
+                memcpy(t->pos, b + 5, 12);
+                for (int k = 0; k < 3; ++k)
+                    t->rel[k] = (float)get16(b + 17 + 2 * k) / 8.0f;
+                p->bomb_n = (uint8_t)(i + 1);
             }
         } else if (tag == EXT_ATTACH && len >= 1) {
             const uint8_t* b = block + 1;
@@ -684,6 +784,32 @@ static void pose_lerp(const Pose* a, const Pose* b, float f, Pose* out) {
     xf_lerp(&a->shield_xf, &b->shield_xf, f, &out->shield_xf);
     out->face_n = nearer->face_n;
     memcpy(out->face, nearer->face, sizeof out->face);
+    out->eye_n = nearer->eye_n;
+    for (int i = 0; i < nearer->eye_n; ++i) { // the pupils glide between the two poses' (an eye the other pose has not: the nearer's)
+        const EyeTex* e = &nearer->eye[i];
+        const Pose* far_pose = nearer == a ? b : a;
+        out->eye[i] = *e;
+        for (int k = 0; k < far_pose->eye_n; ++k)
+            if (far_pose->eye[k].mat == e->mat && far_pose->eye[k].slot == e->slot) {
+                const float w = nearer == a ? f : 1.0f - f; // the weight of the far pose
+                out->eye[i].x = e->x + (far_pose->eye[k].x - e->x) * w;
+                out->eye[i].y = e->y + (far_pose->eye[k].y - e->y) * w;
+            }
+    }
+    out->bomb_n = nearer->bomb_n;
+    for (int i = 0; i < nearer->bomb_n; ++i) { // a bomb moves between the two poses (the same one in the other, when it is there)
+        const BombTrack* e = &nearer->bomb[i];
+        const Pose* far_pose = nearer == a ? b : a;
+        out->bomb[i] = *e;
+        for (int k = 0; k < far_pose->bomb_n; ++k)
+            if (far_pose->bomb[k].id == e->id && far_pose->bomb[k].state != 2 && e->state != 2) {
+                const float w = nearer == a ? f : 1.0f - f;
+                for (int c = 0; c < 3; ++c) {
+                    out->bomb[i].pos[c] = e->pos[c] + (far_pose->bomb[k].pos[c] - e->pos[c]) * w;
+                    out->bomb[i].rel[c] = e->rel[c] + (far_pose->bomb[k].rel[c] - e->rel[c]) * w;
+                }
+            }
+    }
     // What is held: each of the nearer pose's attachments, moved on from the other pose's same one (same kind and model).
     const Pose* other = nearer == a ? b : a;
     out->sail = nearer->sail;
@@ -1199,6 +1325,55 @@ static void capture_face(CPUState* cpu, u32 data, Pose* pose) {
     }
 }
 
+// The materials of a model that have a texture-matrix animation, with the matrix's scroll: the pupils (daPy_matAnm_c sets
+// the scroll of the two eye materials from where Link looks). Fills the material index, the matrix slot and the matrix's address.
+static int eye_materials(CPUState* cpu, u32 data, uint8_t mat_idx[EYE_MAX], uint8_t slot[EYE_MAX], u32 mtx[EYE_MAX]) {
+    const u32 count = mem_read16(cpu, data + MODEL_DATA_MATERIAL_NUM);
+    const u32 mats = mem_read32(cpu, data + MODEL_DATA_MATERIALS);
+    int n = 0;
+    if (!guest_ptr(mats) || count > 64u)
+        return 0;
+    for (u32 i = 0; i < count && n < EYE_MAX; ++i) {
+        const u32 mat = mem_read32(cpu, mats + 4u * i);
+        const u32 anm = guest_ptr(mat) ? mem_read32(cpu, mat + MAT_ANM) : 0u;
+        const u32 gen = guest_ptr(mat) ? mem_read32(cpu, mat + MAT_TEXGEN_BLOCK) : 0u;
+        if (!guest_ptr(anm) || !guest_ptr(gen))
+            continue;
+        for (u32 k = 0; k < 8u && n < EYE_MAX; ++k) {
+            const u32 tm = guest_ptr(mem_read32(cpu, anm + MATANM_TEXMTX + 4u * k)) ? mem_read32(cpu, gen + TEXGEN_TEXMTX + 4u * k) : 0u;
+            if (!guest_ptr(tm))
+                continue;
+            mat_idx[n] = (uint8_t)i;
+            slot[n] = (uint8_t)k;
+            mtx[n++] = tm;
+        }
+    }
+    return n;
+}
+
+// Where the pupils are when he looks straight ahead (daPy_matAnm_c: no eye movement, no morph under way): his own model's, kept as the
+// resting place for a puppet whose pose does not say (an older client's), which is then not made to follow the local Link's eyes.
+static u32 g_eye_rest_data;
+static int g_eye_rest_n;
+static EyeTex g_eye_rest[EYE_MAX];
+
+static void capture_eyes(CPUState* cpu, u32 data, Pose* pose) {
+    uint8_t mat[EYE_MAX], slot[EYE_MAX];
+    u32 mtx[EYE_MAX];
+    pose->eye_n = (uint8_t)eye_materials(cpu, data, mat, slot, mtx);
+    for (int i = 0; i < pose->eye_n; ++i) {
+        pose->eye[i].mat = mat[i];
+        pose->eye[i].slot = slot[i];
+        pose->eye[i].x = read_float(cpu, mtx[i] + TEXMTX_TRANS_X);
+        pose->eye[i].y = read_float(cpu, mtx[i] + TEXMTX_TRANS_Y);
+    }
+    if (mem_read8(cpu, EYE_MOVE_FLAG) == 0u && mem_read8(cpu, EYE_MORF_FRAME) == 0u) {
+        g_eye_rest_data = data;
+        g_eye_rest_n = pose->eye_n;
+        memcpy(g_eye_rest, pose->eye, sizeof g_eye_rest);
+    }
+}
+
 // Which resource a model data is: the archive and the index in it (the game's resource table, mObjectInfo, lists the
 // loaded archives and each one's resources, whose model data are the ones its models are made from). Models built some
 // other way are not found and not sent. Answers are kept by data pointer until the scene changes.
@@ -1278,6 +1453,19 @@ static bool capture_att(CPUState* cpu, u32 model, const Mat34* inv_base, uint8_t
     }
     a->kind = kind;
     a->nj = (uint8_t)nj;
+    static int att_log = -1;
+    if (att_log < 0)
+        att_log = getenv("BLUEWAKE_PUPPET_ATTLOG") != NULL;
+    if (att_log) { // diagnosis: what the pose carries for each model (the scales that the wire's 1/64 byte caps at 3.98)
+        static unsigned said;
+        float big = 0.0f;
+        for (u32 j = 0; j < nj; ++j)
+            for (int k = 0; k < 3; ++k)
+                big = a->joint[j].s[k] > big ? a->joint[j].s[k] : big;
+        if (said++ < 40u)
+            fprintf(stderr, "[puppet] sends kind %d %s/%u: %u joints, base scale %.2f %.2f %.2f at %.0f %.0f %.0f, biggest joint scale %.2f\n", kind, a->arc,
+                    (unsigned)a->idx, nj, a->base.s[0], a->base.s[1], a->base.s[2], a->base.t[0], a->base.t[1], a->base.t[2], big);
+    }
     ++pose->att_n;
     return true;
 }
@@ -1352,6 +1540,110 @@ static void capture_lines(CPUState* cpu, u32 player, const Mat34* inv_base, Pose
         for (int i = 0; i < 3; ++i)
             l->p[0][i] = hand->t[i];
         rel_point(cpu, rope + ACTOR_CURRENT_POS, inv_base, l->p[1]);
+    }
+}
+
+// The bombs he holds or has thrown (daBomb_c, daBomb2::Act_c), for the others to make harmless copies of: each bomb is followed
+// from the moment it is in his hands until it has gone off (and for two seconds after, so that a pose lost on the way does not
+// lose the explosion). Followed by the process id, the actor checked each frame (a deleted actor's memory is not trusted).
+typedef struct SentBomb {
+    u32 pid, actor;
+    uint8_t id, kind;
+    int16_t rest;           // the last frames-to-go seen
+    int gone;               // frames since it went off (or vanished), 0 while it is there
+    int age;
+    float pos[3], rel[3];
+} SentBomb;
+static SentBomb g_sent_bomb[BOMB_MAX];
+static uint8_t g_sent_bomb_next = 1;
+
+static void capture_bombs(CPUState* cpu, u32 player, const Mat34* inv_base, Pose* pose) {
+    pose->bomb_n = 0;
+    if (!attachments_on() || ENV_SET("BLUEWAKE_PUPPET_NOBOMB"))
+        return;
+    // What he holds now: a bomb taken out of the bag, or a bomb flower lifted.
+    u32 held = 0u, held_pid = 0u;
+    const u32 grab = mem_read32(cpu, player + PLAYER_KEEP_GRAB + 4u);
+    if (guest_ptr(grab) && mem_read32(cpu, player + PLAYER_KEEP_GRAB) != 0xFFFFFFFFu) {
+        const u32 name = mem_read16(cpu, grab + 8u);
+        if (name == PROC_BOMB || name == PROC_BOMB2) {
+            held = grab;
+            held_pid = mem_read32(cpu, grab + 4u);
+        }
+    }
+    if (held != 0u) {
+        bool known = false;
+        for (int i = 0; i < BOMB_MAX; ++i)
+            known |= g_sent_bomb[i].pid == held_pid && g_sent_bomb[i].gone == 0;
+        if (!known) {
+            SentBomb* use = NULL;
+            for (int i = 0; i < BOMB_MAX; ++i)
+                if (g_sent_bomb[i].pid == 0u && use == NULL)
+                    use = &g_sent_bomb[i];
+            for (int i = 0; i < BOMB_MAX && use == NULL; ++i) // all taken: the one that has been gone longest is replaced
+                if (g_sent_bomb[i].gone > 0 && (use == NULL || g_sent_bomb[i].gone > use->gone))
+                    use = &g_sent_bomb[i];
+            if (use != NULL) {
+                memset(use, 0, sizeof *use);
+                use->pid = held_pid;
+                use->actor = held;
+                use->kind = mem_read16(cpu, held + 8u) == PROC_BOMB2 ? 1 : 0;
+                use->id = g_sent_bomb_next++;
+                if (g_sent_bomb_next == 0u)
+                    g_sent_bomb_next = 1u;
+                fprintf(stderr, "[puppet] bomb %u (%s, process %08X) is in his hands\n", (unsigned)use->id, use->kind ? "bomb flower" : "bomb", held_pid);
+            }
+        }
+    }
+    for (int i = 0; i < BOMB_MAX; ++i) {
+        SentBomb* sb = &g_sent_bomb[i];
+        if (sb->pid == 0u)
+            continue;
+        ++sb->age;
+        BombTrack* t = &pose->bomb[pose->bomb_n];
+        memset(t, 0, sizeof *t);
+        t->id = sb->id;
+        t->kind = sb->kind;
+        if (sb->gone > 0) {
+            // Gone off: where it was, for a couple of seconds more.
+            if (++sb->gone > 75) {
+                memset(sb, 0, sizeof *sb);
+                continue;
+            }
+            t->state = 2;
+            t->rest = 0;
+            memcpy(t->pos, sb->pos, sizeof t->pos);
+            memcpy(t->rel, sb->rel, sizeof t->rel);
+            ++pose->bomb_n;
+            continue;
+        }
+        const u32 a = sb->actor;
+        const bool alive = guest_ptr(a) && mem_read32(cpu, a + 4u) == sb->pid && mem_read16(cpu, a + 8u) == (sb->kind ? PROC_BOMB2 : PROC_BOMB) && sb->age < 600;
+        bool exploded = false;
+        if (alive) {
+            sb->rest = sb->kind ? (int16_t)mem_read32(cpu, a + BOMB2_TIMER) : (int16_t)mem_read16(cpu, a + BOMB_REST_TIME);
+            exploded = sb->kind ? mem_read32(cpu, a + BOMB2_STATE) == 2u : sb->rest <= 0;
+            for (int k = 0; k < 3; ++k)
+                sb->pos[k] = read_float(cpu, a + ACTOR_CURRENT_POS + 4u * (u32)k);
+            rel_point(cpu, a + ACTOR_CURRENT_POS, inv_base, sb->rel);
+        } else if (sb->rest <= 8) {
+            exploded = true; // gone with its time nearly up: it went off
+        } else {
+            fprintf(stderr, "[puppet] bomb %u vanished with %d frames to go\n", (unsigned)sb->id, (int)sb->rest);
+            memset(sb, 0, sizeof *sb);
+            continue;
+        }
+        if (exploded) {
+            sb->gone = 1;
+            fprintf(stderr, "[puppet] bomb %u went off at %.0f %.0f %.0f\n", (unsigned)sb->id, sb->pos[0], sb->pos[1], sb->pos[2]);
+            t->state = 2;
+        } else {
+            t->state = sb->pid == held_pid ? 0 : 1;
+            t->rest = sb->rest;
+        }
+        memcpy(t->pos, sb->pos, sizeof t->pos);
+        memcpy(t->rel, sb->rel, sizeof t->rel);
+        ++pose->bomb_n;
     }
 }
 
@@ -1511,6 +1803,8 @@ static bool capture_pose(CPUState* cpu, Pose* pose) {
         pose->hands |= (uint8_t)(joint_no << (4 * side));
     }
     capture_face(cpu, mem_read32(cpu, model + MODEL_DATA), pose);
+    capture_eyes(cpu, mem_read32(cpu, model + MODEL_DATA), pose);
+    capture_bombs(cpu, player, &inv, pose);
     capture_attachments(cpu, player, &inv, pose);
     pose->has_time = true;
     pose->wtime = (uint32_t)now_ms();
@@ -1535,6 +1829,8 @@ static void publish_local(const Pose* local) {
             static Pose copy;
             copy = *local;
             copy.base_pos[0] += g_self_offset;
+            for (int i = 0; i < copy.bomb_n; ++i) // (his bombs are shown beside the real ones too)
+                copy.bomb[i].pos[0] += g_self_offset;
             if (getenv("BLUEWAKE_PUPPET_SELF_TURN") != NULL) { // facing the other way: a half turn about Y
                 const float x = copy.base_q[0], y = copy.base_q[1], z = copy.base_q[2], w = copy.base_q[3];
                 copy.base_q[0] = z;
@@ -1581,6 +1877,10 @@ typedef struct Item {
     int id; // the player's id: the texture variant its draws take
     uint8_t face_n;
     FaceTex face[PUPPET_FACE_MAX];
+    uint8_t eye_n;
+    EyeTex eye[EYE_MAX];
+    uint8_t bomb_n;
+    BombTrack bomb[BOMB_MAX];
     bool sail;
     Mat34 sail_mtx; // world
     int16_t sail_pt[HO_POINTS][3];
@@ -2526,6 +2826,56 @@ static void att_release_archive(GuestCoro* co, CPUState* cpu, Guest* g, struct A
     m->loading = false;
 }
 
+// The Wind Waker's baton (Link archive, resource 0x47) takes its colour from a tev register animation that Link enters on the model data
+// when he takes it out (daPy_lk_c::setTactModel: the TTAKT brk of his animation archive, entryTevRegAnimator): without it the baton's
+// own registers show, a puppet's baton came out the wrong colour. The same is done here for a puppet's baton, once, and again
+// whenever the entry is gone (Link putting his own away takes the animation off the data).
+enum {
+    RES_BDL_TAKT = 0x47,
+    PLAY_ANM_ARCHIVE = 0x803C5EA8u + 0x47B0u, // g_dComIfG_gameInfo.play.mpAnmArchive
+    ANM_BRK_TTAKT = 0x154,                    // dRes_INDEX_LKANM_BRK_TTAKT_e
+    FN_READ_IDX_RESOURCE = 0x802B87C0u,       // JKRArchive::readIdxResource(void* buffer, u32 size, u32 index)
+    FN_ANM_LOAD = 0x802FEDA0u,                // J3DAnmLoaderDataBase::load(const void*)
+    FN_BRK_SEARCH_IDS = 0x802F2A64u,          // J3DAnmTevRegKey::searchUpdateMaterialID(J3DModelData*)
+    FN_TEV_REG_ENTRY = 0x802F6058u,           // J3DMaterialTable::entryTevRegAnimator(J3DAnmTevRegKey*)
+    MODEL_DATA_MATERIAL_TABLE = 0x58u,        // J3DModelData::mMaterialTable
+    MATANM_TEV_COLOR = 0x4Cu,                 // J3DMaterialAnm::mTevColorAnm[4]
+};
+static u32 g_tact_probe; // where one of the entered animation's pointers is kept in the data's material animations: 0 until entered
+
+static void tact_brk(GuestCoro* co, CPUState* cpu, u32 data) {
+    if (g_tact_probe != 0u && guest_ptr(g_tact_probe) && mem_read32(cpu, g_tact_probe) != 0u)
+        return; // an animation is entered (ours, or Link's own while he plays)
+    const u32 archive = mem_read32(cpu, PLAY_ANM_ARCHIVE);
+    if (!guest_ptr(archive) || !guest_ptr(data))
+        return;
+    static unsigned tries;
+    if (tries >= 4u)
+        return; // not available here
+    ++tries;
+    const u32 buffer = call(co, FN_NEW_ALIGNED, 0x400u, 0x20u, 0, 0);
+    if (!guest_ptr(buffer))
+        return;
+    call(co, FN_READ_IDX_RESOURCE, archive, buffer, 0x400u, ANM_BRK_TTAKT);
+    const u32 brk = call(co, FN_ANM_LOAD, buffer, 0, 0, 0);
+    if (!guest_ptr(brk))
+        return;
+    write_float(cpu, brk + 8u, 0.0f); // J3DAnmBase::mFrame
+    call(co, FN_BRK_SEARCH_IDS, brk, data, 0, 0);
+    call(co, FN_TEV_REG_ENTRY, data + MODEL_DATA_MATERIAL_TABLE, brk, 0, 0);
+    // The place to look at later: the first tev colour animation any of the data's materials now has.
+    const u32 count = mem_read16(cpu, data + MODEL_DATA_MATERIAL_NUM), mats = mem_read32(cpu, data + MODEL_DATA_MATERIALS);
+    g_tact_probe = 0u;
+    for (u32 i = 0; i < count && i < 64u && g_tact_probe == 0u && guest_ptr(mats); ++i) {
+        const u32 mat = mem_read32(cpu, mats + 4u * i);
+        const u32 anm = guest_ptr(mat) ? mem_read32(cpu, mat + MAT_ANM) : 0u;
+        for (u32 k = 0; k < 4u && guest_ptr(anm); ++k)
+            if (mem_read32(cpu, anm + MATANM_TEV_COLOR + 4u * k) != 0u && g_tact_probe == 0u)
+                g_tact_probe = anm + MATANM_TEV_COLOR + 4u * k;
+    }
+    fprintf(stderr, "[puppet] the baton's colour animation %08X entered on its model data %08X (probe %08X)\n", brk, data, g_tact_probe);
+}
+
 static void att_make(GuestCoro* co, CPUState* cpu, Guest* g, struct AttModel* m) {
     for (int i = 0; i < ATT_ARC; ++i)
         mem_write8(cpu, g->pos + 0x50u + (u32)i, (u8)m->arc[i]);
@@ -2808,6 +3158,197 @@ static void draw_lines(GuestCoro* co, CPUState* cpu, Guest* g, const Item* it) {
     }
 }
 
+// ------------------------------------------------------------------- bombs ----
+// Another player's bombs (their pose lists them: BombTrack). For each, the game's own bomb actor (daBomb_c, a lit bomb) is made
+// here and told not to hit anything (setBombNoHit: it attacks, collides and can be hit by nothing; the game's own explosion that
+// would hurt is likewise made with its attack taken away the moment it is made), and its place is set every frame from the pose:
+// in his hands while he holds it, where the pose has it while it flies. It is kept from going off by itself (its time is put back
+// to his count, never below a few frames), and when his pose says it went off (or the pose stops naming it for a while with its
+// time nearly up) it is removed and the game's own explosion, with its light, smoke and sound, is made at that place, harmless.
+// The game's bomb actor moves nothing of its own meanwhile: a no-hit bomb does not fall or slide.
+typedef struct VisBomb {
+    int player;
+    uint8_t id, kind;
+    u32 pid, actor;
+    int missing;     // frames since the pose last named it
+    int16_t rest;    // frames to go as of the last pose naming it
+    bool exploded;   // its explosion has been made (the entry stays a while so that a repeated pose does not make it again)
+    int done;
+    float pos[3];
+} VisBomb;
+static VisBomb g_vis_bomb[MAX_REMOTES * BOMB_MAX];
+static u32 g_bomb_scratch;
+
+static bool bombs_active(void) {
+    for (size_t i = 0; i < sizeof g_vis_bomb / sizeof g_vis_bomb[0]; ++i)
+        if (g_vis_bomb[i].player != 0)
+            return true;
+    return false;
+}
+
+static bool vis_bomb_alive(CPUState* cpu, const VisBomb* v) {
+    return guest_ptr(v->actor) && mem_read32(cpu, v->actor + 4u) == v->pid && mem_read16(cpu, v->actor + 8u) == PROC_BOMB;
+}
+
+// A bomb actor made at `pos` in the state (daBomb_c::State_e) given, with all its hits taken away. 0 when it could not be made.
+static u32 bomb_make(GuestCoro* co, CPUState* cpu, uint32_t state, const float pos[3], u32* pid) {
+    if (g_bomb_scratch == 0u) {
+        const u32 block = call(co, FN_NEW, 0x40u, 0, 0, 0);
+        if (!guest_ptr(block))
+            return 0u;
+        g_bomb_scratch = block;
+    }
+    for (u32 k = 0; k < 3u; ++k)
+        write_float(cpu, g_bomb_scratch + 4u * k, pos[k]);
+    CPUState* c = bluewake_coro_cpu(co); // the arguments past the sixth: subtype -1, no create function, no argument
+    c->gpr[9] = 0xFFFFFFFFu;
+    c->gpr[10] = 0u;
+    c->gpr[11] = 0u;
+    const u32 actor = bluewake_guest_call(co, FN_FAST_CREATE, PROC_BOMB, 0x80000000u | state, g_bomb_scratch, (u32)(s32)(s8)mem_read8(cpu, STAY_ROOM), 0u, 0u);
+    if (!guest_ptr(actor))
+        return 0u;
+    *pid = mem_read32(cpu, actor + 4u);
+    call(co, FN_BOMB_NO_HIT, actor, 0, 0, 0);
+    return actor;
+}
+
+static void bomb_remove(GuestCoro* co, CPUState* cpu, VisBomb* v) {
+    if (vis_bomb_alive(cpu, v))
+        call(co, FN_ACTOR_DELETE_ID, v->pid, 0, 0, 0);
+    v->actor = 0u;
+}
+
+// Blasts near me, for the app's PvP rules (a bomb of the game's own explodes at 200 units around it).
+static struct {
+    bool pending;
+    int player;
+    float pos[3];
+} g_blast;
+
+bool bluewake_puppet_take_blast(int* player, float pos[3]) {
+    lock();
+    const bool any = g_blast.pending;
+    if (any) {
+        *player = g_blast.player;
+        memcpy(pos, g_blast.pos, sizeof g_blast.pos);
+        g_blast.pending = false;
+    }
+    unlock();
+    return any;
+}
+
+static void bomb_explode(GuestCoro* co, CPUState* cpu, VisBomb* v) {
+    if (v->exploded)
+        return;
+    v->exploded = true;
+    bomb_remove(co, cpu, v);
+    {
+        const u32 me = mem_read32(cpu, PLAYER);
+        if (guest_ptr(me) && v->player != SELF_ID) {
+            const float dx = read_float(cpu, me + ACTOR_CURRENT_POS) - v->pos[0], dy = read_float(cpu, me + ACTOR_CURRENT_POS + 4u) - v->pos[1],
+                        dz = read_float(cpu, me + ACTOR_CURRENT_POS + 8u) - v->pos[2];
+            if (dx * dx + dz * dz < 200.0f * 200.0f && fabsf(dy) < 150.0f) {
+                lock();
+                g_blast.pending = true;
+                g_blast.player = v->player;
+                memcpy(g_blast.pos, v->pos, sizeof g_blast.pos);
+                unlock();
+            }
+        }
+    }
+    u32 pid = 0u;
+    const u32 blast = bomb_make(co, cpu, 0u, v->pos, &pid); // state 0: goes off as it is made
+    fprintf(stderr, "[puppet] player %d's bomb %u goes off at %.0f %.0f %.0f (%s)\n", v->player, (unsigned)v->id, v->pos[0], v->pos[1], v->pos[2],
+            blast != 0u ? "the game's explosion, harmless" : "could not be made");
+}
+
+static void bombs_fiber(GuestCoro* co, CPUState* cpu, const Work* w) {
+    static unsigned said;
+    const size_t n = sizeof g_vis_bomb / sizeof g_vis_bomb[0];
+    bool named[sizeof g_vis_bomb / sizeof g_vis_bomb[0]] = {false};
+    for (int oi = 0; oi < w->count; ++oi) {
+        const Item* it = &w->item[oi];
+        for (int bi = 0; bi < it->bomb_n; ++bi) {
+            const BombTrack* b = &it->bomb[bi];
+            VisBomb* v = NULL;
+            VisBomb* freeslot = NULL;
+            for (size_t k = 0; k < n; ++k) {
+                if (g_vis_bomb[k].player == it->id && g_vis_bomb[k].id == b->id)
+                    v = &g_vis_bomb[k];
+                else if (g_vis_bomb[k].player == 0 && freeslot == NULL)
+                    freeslot = &g_vis_bomb[k];
+            }
+            float at[3];
+            for (int i = 0; i < 3; ++i)
+                at[i] = b->state == 0 ? it->base.m[i][0] * b->rel[0] + it->base.m[i][1] * b->rel[1] + it->base.m[i][2] * b->rel[2] + it->base.m[i][3] : b->pos[i];
+            if (v == NULL) {
+                if (freeslot == NULL)
+                    continue;
+                v = freeslot;
+                memset(v, 0, sizeof *v);
+                v->player = it->id;
+                v->id = b->id;
+                v->kind = b->kind;
+                if (b->state != 2 && said++ < 8)
+                    fprintf(stderr, "[puppet] player %d's bomb %u (%s) appears at %.0f %.0f %.0f, %d frames to go\n", it->id, (unsigned)b->id,
+                            b->kind ? "flower bomb" : "bomb", at[0], at[1], at[2], (int)b->rest);
+            }
+            named[v - g_vis_bomb] = true;
+            v->missing = 0;
+            memcpy(v->pos, at, sizeof at);
+            v->rest = b->rest;
+            if (b->state == 2) {
+                bomb_explode(co, cpu, v);
+                continue;
+            }
+            if (v->exploded)
+                continue;
+            if (!vis_bomb_alive(cpu, v)) {
+                u32 pid = 0u;
+                v->actor = bomb_make(co, cpu, BOMB_STATE_FREE, at, &pid);
+                v->pid = pid;
+                if (!guest_ptr(v->actor))
+                    continue;
+            }
+            // Where it is, still, and not to be picked up, targeted or to go off by itself.
+            const u32 a = v->actor;
+            for (u32 k = 0; k < 3u; ++k) {
+                write_float(cpu, a + ACTOR_CURRENT_POS + 4u * k, at[k]);
+                write_float(cpu, a + 0x1E4u + 4u * k, at[k]);
+                write_float(cpu, a + 0x220u + 4u * k, 0.0f);
+            }
+            write_float(cpu, a + 0x254u, 0.0f);
+            write_float(cpu, a + 0x258u, 0.0f);
+            mem_write32(cpu, a + AC_ATTN_FLAGS, 0u);
+            mem_write16(cpu, a + BOMB_REST_TIME, (u16)(v->rest < 6 ? 6 : v->rest));
+            call(co, FN_BOMB_NO_HIT, a, 0, 0, 0);
+        }
+    }
+    for (size_t k = 0; k < n; ++k) {
+        VisBomb* v = &g_vis_bomb[k];
+        if (v->player == 0 || named[k])
+            continue;
+        ++v->missing;
+        if (v->exploded) {
+            if (++v->done > 150)
+                memset(v, 0, sizeof *v);
+            continue;
+        }
+        if (v->actor != 0u && !vis_bomb_alive(cpu, v)) { // the game took it away (the scene changed)
+            memset(v, 0, sizeof *v);
+            continue;
+        }
+        if (v->missing > 20) { // no longer named: with its time nearly up it went off, else it is gone
+            if (v->rest <= 90)
+                bomb_explode(co, cpu, v);
+            else {
+                bomb_remove(co, cpu, v);
+                memset(v, 0, sizeof *v);
+            }
+        }
+    }
+}
+
 static void draw_attachments(GuestCoro* co, CPUState* cpu, Guest* g, const Item* it) {
     static unsigned tick;
     ++tick;
@@ -2820,6 +3361,8 @@ static void draw_attachments(GuestCoro* co, CPUState* cpu, Guest* g, const Item*
         if (m == NULL)
             continue;
         m->used = tick;
+        if (a->idx == RES_BDL_TAKT && strcmp(a->arc, "Link") == 0)
+            tact_brk(co, cpu, mem_read32(cpu, m->model + MODEL_DATA)); // the baton's colour (see tact_brk)
         const u32 data = mem_read32(cpu, m->model + MODEL_DATA);
         const u32 nodes = mem_read32(cpu, m->model + MODEL_NODE_MTX);
         if (!guest_ptr(data) || !guest_ptr(nodes) || mem_read16(cpu, data + MODEL_DATA_JOINT_NUM) != a->nj)
@@ -3040,9 +3583,57 @@ static void draw_puppet(GuestCoro* co, CPUState* cpu, Guest* g, u32 vanilla_data
             ++face_n;
         }
     }
+    // His pupils: the scroll of the eye materials' texture matrices is his, not the local Link's (whose material animation sets
+    // it from where he looks). The scroll he sent, or none (the pupils straight ahead) when the pose has none or its indices are
+    // not for this body; the animation is set aside for the entry so that the game's material calc leaves it.
+    u32 eye_anm[EYE_MAX], eye_mat[EYE_MAX], eye_mtx[EYE_MAX];
+    float eye_old[EYE_MAX][2];
+    int eye_n = 0;
+    {
+        uint8_t idx[EYE_MAX], slot[EYE_MAX];
+        u32 mtx[EYE_MAX];
+        const bool his = !it->face_skip && (g->custom || !it->body_wanted);
+        const u32 mats = mem_read32(cpu, model_data + MODEL_DATA_MATERIALS);
+        const int found = ENV_SET("BLUEWAKE_PUPPET_NOEYES") ? 0 : eye_materials(cpu, model_data, idx, slot, mtx); // (the variable: testing, the pupils follow the local Link's as before)
+        for (int i = 0; i < found && guest_ptr(mats); ++i) {
+            // His pupils from his pose; without (an older client's pose) the resting place of Link's, when this model is the one it was
+            // seen on; a model that Link's eye animation never reaches keeps its own.
+            float x = 0.0f, y = 0.0f;
+            bool known = false;
+            for (int k = 0; his && k < it->eye_n; ++k)
+                if (it->eye[k].mat == idx[i] && it->eye[k].slot == slot[i]) {
+                    x = it->eye[k].x;
+                    y = it->eye[k].y;
+                    known = true;
+                }
+            for (int k = 0; !known && model_data == g_eye_rest_data && k < g_eye_rest_n; ++k)
+                if (g_eye_rest[k].mat == idx[i] && g_eye_rest[k].slot == slot[i]) {
+                    x = g_eye_rest[k].x;
+                    y = g_eye_rest[k].y;
+                    known = true;
+                }
+            if (!known)
+                continue;
+            const u32 mat = mem_read32(cpu, mats + 4u * idx[i]);
+            eye_mat[eye_n] = mat;
+            eye_mtx[eye_n] = mtx[i];
+            eye_anm[eye_n] = mem_read32(cpu, mat + MAT_ANM); // 0 when the face above already set it aside
+            eye_old[eye_n][0] = read_float(cpu, mtx[i] + TEXMTX_TRANS_X);
+            eye_old[eye_n][1] = read_float(cpu, mtx[i] + TEXMTX_TRANS_Y);
+            write_float(cpu, mtx[i] + TEXMTX_TRANS_X, x);
+            write_float(cpu, mtx[i] + TEXMTX_TRANS_Y, y);
+            mem_write32(cpu, mat + MAT_ANM, 0u);
+            ++eye_n;
+        }
+    }
     mem_write32(cpu, J3D_SYS + 0x48u, mem_read32(cpu, DRAW_LIST + DRAW_OPA_P1));
     mem_write32(cpu, J3D_SYS + 0x4Cu, mem_read32(cpu, DRAW_LIST + DRAW_OPA_P1 + 4u));
     call(co, FN_MODEL_ENTRY_DL, g->model, 0, 0, 0);
+    for (int i = eye_n - 1; i >= 0; --i) {
+        write_float(cpu, eye_mtx[i] + TEXMTX_TRANS_X, eye_old[i][0]);
+        write_float(cpu, eye_mtx[i] + TEXMTX_TRANS_Y, eye_old[i][1]);
+        mem_write32(cpu, eye_mat[i] + MAT_ANM, eye_anm[i]);
+    }
     for (int i = face_n - 1; i >= 0; --i) { // in reverse: a material can be listed for two slots
         mem_write16(cpu, face_tev[i] + TEV_BLOCK_TEXNO + 2u * face_slot[i], face_old[i]);
         mem_write32(cpu, face_mat[i] + MAT_ANM, face_anm[i]);
@@ -3234,6 +3825,7 @@ static void draw_body(GuestCoro* co, void* arg) {
     }
     bluewake_pvp_fiber(co, cpu); // the bodies and target actors of the puppets (puppet_pvp.c)
     bluewake_carry_fiber(co, cpu); // a lifted Link crouches, a hold is let go (puppet_carry.c)
+    bombs_fiber(co, cpu, w);       // the others' bombs, as harmless copies
     // Puppets are made (or made again) before any is drawn, the most recently active player's first, so that when the game's
     // heaps cannot hold every custom body the ones that are moving get them; and a player who is active while others sit
     // still takes a custom body's room from the one that has been still longest (that one is stock for 20 seconds).
@@ -3941,6 +4533,10 @@ static void build_item(const Pose* p, Item* it) {
     mat_mul(&it->base, &e, &it->shield_mtx);
     it->face_n = p->face_n;
     memcpy(it->face, p->face, sizeof it->face);
+    it->eye_n = p->eye_n;
+    memcpy(it->eye, p->eye, sizeof it->eye);
+    it->bomb_n = p->bomb_n;
+    memcpy(it->bomb, p->bomb, sizeof it->bomb);
     it->sail = p->sail;
     if (p->sail) {
         mat_from_xf(&p->sail_xf, &e);
@@ -4156,7 +4752,7 @@ u32 bluewake_puppet_hook(CPUState* cpu, u32 id) {
         }
     }
     unlock();
-    if (w->count == 0 && !map_alloc_wanted() && !chart_alloc_wanted() && !g_cap_pending && !bluewake_pvp_wants_fiber() && !bluewake_carry_wants_fiber())
+    if (w->count == 0 && !map_alloc_wanted() && !chart_alloc_wanted() && !g_cap_pending && !bluewake_pvp_wants_fiber() && !bluewake_carry_wants_fiber() && !bombs_active())
         return 0u;
     return bluewake_coro_step(g_coro_draw, cpu, SITE_DRAW, NULL);
 }

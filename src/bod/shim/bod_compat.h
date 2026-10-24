@@ -17,6 +17,8 @@ void aurora_set_forced_anisotropy(unsigned samples);
 void aurora_set_frame_interpolation(bool enabled);
 void aurora_set_fps_overlay(bool enabled);
 bool aurora_get_frame_interpolation(void);
+/* The weight of the frame being drawn between the game's older frame (0) and its newer one (1): 1 for a real frame. */
+float aurora_get_frame_blend(void);
 void aurora_set_frame_interp_steps(int steps);
 int aurora_get_frame_interp_steps(void);
 unsigned long long aurora_get_shown_frames(void);
