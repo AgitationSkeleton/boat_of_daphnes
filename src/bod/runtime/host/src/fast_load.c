@@ -179,7 +179,8 @@ void bluewake_fast_load_retrace(unsigned long long cpu_us) {
     if (cpu == NULL)
         return;
     while (g_warp_next < g_warp_count && g_retrace >= g_warps[g_warp_next].retrace) {
-        if (g_retrace == g_warps[g_warp_next].retrace)
+        // (the host's count can step over a number: a few retraces late still counts)
+        if (g_retrace < g_warps[g_warp_next].retrace + 60u)
             warp(cpu, &g_warps[g_warp_next]);
         g_warp_next++;
     }
