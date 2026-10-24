@@ -1,0 +1,37 @@
+description BR-0018: break Jabun's cave rock wall in its three stages; the last cutscene must end (the whirlpool shrinks, Link is free)
+# Bombs are replaced by the hit they make: the wall's sphere collider gets its "hit" bit (Obj_Ajav = process 0x88, mSph at +0x2D8,
+# its target hit flag at +0x1C), which is what damage_part() looks for. M_status (+0xC22) counts the stages, mActionIdx (+0xC24) is
+# the state (3: waiting for the rocks to settle, then the cutscene ends).
+save 5-BombsEarly
+start load
+skip
+warp sea 44 0
+skip
+wait 30
+teleport sea 44 -205542 100 324800 32768
+skip
+wait 60
+peek actor:0x88+0xC22/1 stage_0
+poke actor:0x88+0x2F4=1/4
+wait 240
+skip
+wait 60
+peek actor:0x88+0xC22/1 stage_1
+poke actor:0x88+0x2F4=1/4
+wait 240
+skip
+wait 60
+peek actor:0x88+0xC22/1 stage_2
+poke actor:0x88+0x2F4=1/4
+wait 300
+shot final_stage
+peek actor:0x88+0xC22/1 stage_3
+peek actor:0x88+0xC24/1 action_3
+skip 1800
+peek actor:0x88+0xC22/1 stage_end
+peek 0x803C9EA2/1 event_end
+shot after_cutscene
+expect_peek stage_0 == 0
+expect_peek stage_1 == 1
+expect_peek stage_2 == 2
+expect_peek event_end == 0

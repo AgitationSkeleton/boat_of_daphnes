@@ -13,6 +13,7 @@
 #include "../bod/shim/bod_compat.h"
 
 #include "core/cpu.h"
+#include "dev_tools.h"
 #include "game_state.h"
 extern "C" {
 #include "bunny_hood.h"
@@ -121,6 +122,7 @@ struct Script {
     bool began = false;     // the current command has started
     u64 began_at = 0;       // its first retrace
     u64 safe_since = 0;     // the first retrace of the present run of playable retraces (0: not playable now)
+    u64 placed_since = 0;   // the same without the no-event condition: Link is in a play scene and no change is under way
     int phase = 0;          // a command's own steps
     int tries = 0;
     u64 phase_at = 0;
@@ -214,6 +216,20 @@ void writeStage(const std::string& stage, int room, int point, int layer, int wi
     mem_write8(c, kNextStage + 0xC, 1);
 }
 
+// An address as the script writes it: 0x803C4C0C, or actor:PROC+OFFSET for a field of the first live actor of that process
+// (fpcNm number, as the console's actors list shows: actor:0x88+0x2F4 is Obj_Ajav's sphere hit flag). 0 when there is none.
+u32 addressOf(const std::string& text) {
+    if (text.compare(0, 6, "actor:") != 0) return u32(std::strtoul(text.c_str(), nullptr, 0));
+    const long proc = std::strtol(text.c_str() + 6, nullptr, 0);
+    const size_t plus = text.find('+');
+    const u32 offset = plus == std::string::npos ? 0u : u32(std::strtoul(text.c_str() + plus + 1, nullptr, 0));
+    static std::vector<BluewakeDevActor> list(2048);
+    const unsigned count = bluewake_dev_actors(list.data(), unsigned(list.size()));
+    for (unsigned i = 0; i < count; ++i)
+        if (list[i].proc == proc) return list[i].address + offset;
+    return 0;
+}
+
 // One command: true when done. `first` is true on its first call.
 bool runCommand(const Command& c, bool first, u64 since) {
     const auto& a = c.args;
@@ -227,6 +243,7 @@ bool runCommand(const Command& c, bool first, u64 since) {
         return true;
     };
     const bool safe = playable(loc) && S.safe_since && t - S.safe_since >= 20;
+    const bool placed = S.placed_since && t - S.placed_since >= 20;  // (a scene's opening event may still run)
     // ---- time ----
     if (v == "wait") {
         // wait N | wait link | wait stage NAME [room] | wait event | wait noevent | wait menu
@@ -315,7 +332,7 @@ bool runCommand(const Command& c, bool first, u64 since) {
             }
             return false;
         }
-        const bool arrived = safe && stageName() == a[0] && loc.room == room;
+        const bool arrived = placed && stageName() == a[0] && loc.room == room;
         return arrived || timedOut(5400, "the warp did not arrive");
     }
     if (v == "teleport") {
@@ -334,7 +351,7 @@ bool runCommand(const Command& c, bool first, u64 since) {
             else if (t - S.phase_at > 120) return log("TIMEOUT line %d: the teleport did not start", c.line), true;
             return false;
         }
-        return (safe && stageName() == a[0] && loc.room == num(a, 1, 0)) || timedOut(5400, "the teleport did not arrive");
+        return (placed && stageName() == a[0] && loc.room == num(a, 1, 0)) || timedOut(5400, "the teleport did not arrive");
     }
     if (v == "menu") {
         // menu HEADER/PAGE | menu close: the Boat of Daphnes menu, opened on a page (a window the UI thread draws)
@@ -370,6 +387,15 @@ bool runCommand(const Command& c, bool first, u64 since) {
         if (first) setInput(buttonsOf(a.empty() ? "" : a[0]), 0, 0, 0, 0, u64(num(a, 1, 8)));
         return elapsed >= u64(num(a, 1, 8)) + 6;
     }
+    if (v == "skip") {
+        // skip [TIMEOUT]: A through cutscenes and text until no event runs (for 30 retraces)
+        const bool event = mem_read8(cpu(), kEventMode) != 0;
+        if (event) S.phase_at = t;
+        if (!event && t - S.phase_at >= 30) return true;
+        if (timedOut(u64(num(a, 0, 3600)), "the event did not end")) return true;
+        if (event && (elapsed % 50) == 0) setInput(kA, 0, 0, 0, 0, 8);
+        return false;
+    }
     if (v == "hold") {  // hold BUTTON[+BUTTON]: until release
         std::lock_guard g(S.lock);
         S.held |= buttonsOf(a.empty() ? "" : a[0]);
@@ -396,9 +422,10 @@ bool runCommand(const Command& c, bool first, u64 since) {
     if (v == "peek") {
         // peek ADDRESS[/SIZE] [LABEL]: logs "[script] peek 0x... = 0x..." (size 1, 2 or 4)
         if (a.empty()) return true;
-        const u32 addr = u32(std::strtoul(a[0].c_str(), nullptr, 0));
+        const u32 addr = addressOf(a[0]);
         const size_t slash = a[0].find('/');
         const int size = slash == std::string::npos ? 4 : std::atoi(a[0].c_str() + slash + 1);
+        if (addr == 0) return log("peek %s: no such actor", a[0].c_str()), true;
         const u32 val = size == 1 ? mem_read8(cpu(), addr) : size == 2 ? mem_read16(cpu(), addr) : mem_read32(cpu(), addr);
         log("peek 0x%08X/%d = 0x%X (%u)%s%s", addr, size, val, val, a.size() > 1 ? " " : "", a.size() > 1 ? a[1].c_str() : "");
         return true;
@@ -408,7 +435,11 @@ bool runCommand(const Command& c, bool first, u64 since) {
         for (const auto& w : a) {
             const size_t eq = w.find('=');
             if (eq == std::string::npos) continue;
-            const u32 addr = u32(std::strtoul(w.c_str(), nullptr, 0));
+            const u32 addr = addressOf(w.substr(0, eq));
+            if (addr == 0) {
+                log("poke %s: no such actor", w.c_str());
+                continue;
+            }
             const size_t slash = w.find('/', eq);
             const int size = slash == std::string::npos ? 4 : std::atoi(w.c_str() + slash + 1);
             const u32 val = u32(std::strtoull(w.c_str() + eq + 1, nullptr, 0));
@@ -486,6 +517,11 @@ void testScriptRetrace() {
         if (!S.safe_since) S.safe_since = t;
     } else {
         S.safe_since = 0;
+    }
+    if (loc.scene_proc == BLUEWAKE_SCENE_PLAY && loc.has_player && mem_read8(cpu(), kNextStage + 0xC) == 0 && mem_read32(cpu(), kOverlap) == 0) {
+        if (!S.placed_since) S.placed_since = t;
+    } else {
+        S.placed_since = 0;
     }
     if (S.time_hold) writeFloat(kSaveTime, S.time_deg);
     if (S.finished) {

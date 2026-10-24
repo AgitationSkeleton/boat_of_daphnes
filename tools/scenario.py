@@ -361,7 +361,7 @@ def run(args, s: dict) -> dict:
     game_args += ["--frames", str(frames)]
     rungame = Path(args.rungame) if args.rungame else (LOCAL / "bod2" / "rungame.py" if LOCAL else None)
     if rungame and rungame.is_file():
-        cmd = [sys.executable, str(rungame), "--exe", str(exe), "--timeout", str(args.timeout or s["timeout"]), "--log", str(log)]
+        cmd = [sys.executable, str(rungame), "--exe", str(exe), "--timeout", str(args.timeout or s["timeout"]), "--wait", str(args.wait), "--log", str(log)]
         for k, v in env.items():
             cmd += ["--env", f"{k}={v}"]
         cmd += ["--"] + game_args
@@ -473,6 +473,7 @@ def main() -> int:
     p.add_argument("--out", default=str(ROOT / "build" / "scenarios"))
     p.add_argument("--saves", help="folder of .gci saves (env BOD_SAVES; local/cryze_saves)")
     p.add_argument("--rungame", help="the lock wrapper (default local/bod2/rungame.py)")
+    p.add_argument("--wait", type=float, default=21600, help="seconds to wait for the game lock (another run, or a player)")
     p.add_argument("--windowed", action="store_true", help="a window instead of headless (menus, cvars that need it)")
     p.add_argument("--headless", action="store_true", help="headless even when the scenario says windowed")
     p.add_argument("--timeout", type=float, default=0, help="seconds before the game is killed (default: the scenario's, 240)")

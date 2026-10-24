@@ -1,0 +1,22 @@
+description BR-0031: the Grappling Hook can be readied (Y) on land: the player status word gets the rope-aim bit
+# play.mPlayerStatus[0] (0x803CA8D0): 0x20000 is the rope (grappling hook) aim, 0x2000 the first-person look.
+save 2-Pictobox
+start load
+wait link
+give grappling_hook
+equip Y grappling_hook
+warp sea 44 0
+skip
+wait 30
+console pos
+peek 0x803CA8D0/4 before_outset
+press Y 10
+wait 60
+peek 0x803CA8D0/4 readied_outset
+shot readied_outset
+press B 10
+wait 60
+peek 0x803CA8D0/4 away_outset
+expect_peek before_outset !& 0x20000
+expect_peek readied_outset & 0x20000
+expect_peek away_outset !& 0x20000

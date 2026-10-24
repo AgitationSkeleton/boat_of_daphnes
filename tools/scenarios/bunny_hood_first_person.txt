@@ -1,0 +1,19 @@
+description BR-0050: the Bunny Hood must not be visible in the plain first-person look (C-stick up)
+# The hood is given by the collect byte (dSv_player_collect_c mCollect[4] = 0x803C4CC0: bit 2 owned, bit 3 worn), then the room is
+# loaded again so the hood's heaps are made. (The save's own bytes are not the memory's offsets there, so no `patch` for it.)
+save 2-Pictobox
+env BLUEWAKE_TEST_BUNNY 1
+start load
+wait link
+poke 0x803C4CC0=0x0C/1
+warp sea 11 0
+wait 60
+peek 0x803C4CC0/1 collect_byte
+shot third_person
+cstick 0 100
+wait 90
+shot first_person
+peek 0x803CA8D0/4 look_status
+expect_peek collect_byte & 0x0C
+expect_peek look_status & 0x2000
+cstick 0 0
