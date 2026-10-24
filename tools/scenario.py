@@ -388,7 +388,7 @@ def run(args, s: dict) -> dict:
                 time.sleep(0.5)
                 if time.time() > deadline and not wrapped:
                     proc.kill()
-                text = log.read_text(errors="replace") if log.exists() else ""
+                text = game_log_text(log, exe, t0)
                 if not dead and re.search(r"Failed assertion|CRASH:|FATAL", text):
                     dead = time.time()  # the game stopped itself: no use holding the game lock; its log says why
                 if dead and time.time() > dead + 8:
@@ -410,11 +410,21 @@ def run(args, s: dict) -> dict:
             settings.write_bytes(saved)
         elif s["cvars"] and settings.exists():
             settings.unlink()
-    return finish(args, s, out, log, code, time.time() - t0)
+    return finish(args, s, out, log, code, time.time() - t0, exe, t0)
 
 
-def finish(args, s: dict, out: Path, log: Path, code, seconds: float) -> dict:
+def game_log_text(log: Path, exe: Path, since: float) -> str:
+    """The run's own log plus the game's newest host log (the runtime writes its stderr - the [script] lines among it -
+    to logs/session-*-host.log beside the program), when that one was written during this run."""
     text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+    hosts = sorted((exe.parent / "logs").glob("session-*-host.log"), key=lambda q: q.stat().st_mtime)
+    if hosts and hosts[-1].stat().st_mtime > since - 5:
+        text += hosts[-1].read_text(encoding="utf-8", errors="replace")
+    return text
+
+
+def finish(args, s: dict, out: Path, log: Path, code, seconds: float, exe: Path, t0: float) -> dict:
+    text = game_log_text(log, exe, t0)
     shots = convert_dumps(out / "shots") + sorted(p.name for p in (out / "shots").glob("*.png"))
     result = {"scenario": s["name"], "exit": code, "seconds": round(seconds), "shots": sorted(set(shots)), "expect": [],
               "peeks": re.findall(r"\[script\] peek .*", text), "problems": [], "passed": True}
