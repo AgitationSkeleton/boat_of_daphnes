@@ -4,6 +4,7 @@
 #include "cosmetics.h"
 #include "guest_coro.h"
 #include "gxruntime/dvd.h"
+#include "puppet.h"
 #include "text_swap.h"
 
 #include <math.h>
@@ -1319,6 +1320,8 @@ static bool make_data(GuestCoro* co, CPUState* cpu) {
     u32 heap = 0u;
     const u32 want[3] = {g_bdl_len * 3u + 0x30000u, g_bdl_len * 2u + 0x20000u, g_bdl_len + 0x18000u};
     for (int k = 0; k < 3 && heap == 0u; ++k)
+        heap = bluewake_puppet_pool_heap(co, want[k]); // outside the game's heaps (the puppets' pools) when there are some
+    for (int k = 0; k < 3 && heap == 0u; ++k)
         heap = CALL(FN_CREATE_HEAP_TO_CURRENT, want[k], 0x20u, 0, 0);
     if (heap == 0u) {
         g_data_failed = true;
@@ -1367,7 +1370,7 @@ static bool make_data(GuestCoro* co, CPUState* cpu) {
     CALL(FN_ADJUST_HEAP, heap, 0, 0, 0);
     CALL(FN_RESTORE_HEAP, 0, 0, 0, 0);
     if (!guest_ptr(data)) {
-        CALL(FN_DESTROY_HEAP, heap, 0, 0, 0);
+        bluewake_puppet_pool_destroy(co, heap);
         g_data_failed = true;
         fprintf(stderr, "[bunny] the loader refused the model (buffer %08X)\n", buf);
         return false;
@@ -1391,6 +1394,8 @@ static bool make_wearer(GuestCoro* co, CPUState* cpu, Wearer* w, int room) {
         return false;
     u32 heap = 0u;
     for (int k = 0; k < 3 && heap == 0u; ++k)
+        heap = bluewake_puppet_pool_heap(co, sizes[k]);
+    for (int k = 0; k < 3 && heap == 0u; ++k)
         heap = CALL(FN_CREATE_HEAP_TO_CURRENT, sizes[k], 0x20u, 0, 0);
     if (heap == 0u) {
         if (g_heap_attempts++ == 0)
@@ -1406,7 +1411,7 @@ static bool make_wearer(GuestCoro* co, CPUState* cpu, Wearer* w, int room) {
     CALL(FN_ADJUST_HEAP, heap, 0, 0, 0);
     CALL(FN_RESTORE_HEAP, 0, 0, 0, 0);
     if (model == 0u || tev == 0u || pos == 0u) {
-        CALL(FN_DESTROY_HEAP, heap, 0, 0, 0);
+        bluewake_puppet_pool_destroy(co, heap);
         w->failed = true;
         fprintf(stderr, "[bunny] the wearer's model could not be made (model %08X, tev %08X, pos %08X, heap %u)\n", model, tev, pos, SLOT_HEAP);
         return false;
@@ -2099,11 +2104,11 @@ static void delete_body(GuestCoro* co, void* arg) {
 static void teardown(GuestCoro* co) {
     for (int i = 0; i < MAX_WEARERS; ++i) {
         if (g_wearer[i].heap != 0u)
-            CALL(FN_DESTROY_HEAP, g_wearer[i].heap, 0, 0, 0);
+            bluewake_puppet_pool_destroy(co, g_wearer[i].heap);
         memset(&g_wearer[i], 0, sizeof g_wearer[i]);
     }
     if (g_data_heap != 0u)
-        CALL(FN_DESTROY_HEAP, g_data_heap, 0, 0, 0);
+        bluewake_puppet_pool_destroy(co, g_data_heap);
     g_data = g_data_heap = 0u; g_dl_buf = 0u; g_base_ok = false; g_blk_scanned = false; g_blk_n = 0;
     g_follow_bind_ok = false;
     g_data_failed = false;
@@ -2150,6 +2155,22 @@ u32 bluewake_bunny_hood_draw_hook(CPUState* cpu, u32 site) {
             if (it != NULL)
                 g_give_item = (u32)strtoul(it, NULL, 0);
             g_give_request = 1;
+        }
+    }
+    {
+        // A model that could not be made (no heap with room: custom-model players fill them) is tried again, every three
+        // seconds, not given up for the scene: the hood used to stop drawing for good at the first failure.
+        static int waiting;
+        bool failed = g_data_failed;
+        for (int i = 0; i < MAX_WEARERS; ++i)
+            failed = failed || g_wearer[i].failed;
+        if (!g_worn || !failed)
+            waiting = 0;
+        else if (++waiting >= 180) {
+            waiting = 0;
+            g_data_failed = false;
+            for (int i = 0; i < MAX_WEARERS; ++i)
+                g_wearer[i].failed = false;
         }
     }
     if (g_coro_draw == NULL)

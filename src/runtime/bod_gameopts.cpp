@@ -666,6 +666,8 @@ bool optionOn(const char* name) { return on(name); }
 bool optionSet(const char* name, bool enable) {  // the menu's switch (bluewake_game_options_set): the next frame applies it
     const int i = optionIndex(name);
     if (i < 0) return false;
+    if (!std::strcmp(name, "widescreen_culling")) g_wideCulling = enable;
+    if (!std::strcmp(name, "hud_edges")) g_wideHud = enable;
     s_want[size_t(i)] = enable && supported(name);
     return true;
 }
@@ -702,6 +704,8 @@ void optionsFrame() {
             bool want = kOptions[i].listOn && !none;
             named(wanted, kOptions[i].name, &want);
             if (kOptions[i].index < 16) want = want && modOn;
+            if (!std::strcmp(kOptions[i].name, "widescreen_culling")) g_wideCulling = want;
+            if (!std::strcmp(kOptions[i].name, "hud_edges")) g_wideHud = want;
             s_want[i] = want && supported(kOptions[i].name);
             if (s_want[i]) list += (list.empty() ? "" : ",") + std::string(kOptions[i].name);
         }

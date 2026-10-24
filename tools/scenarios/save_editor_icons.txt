@@ -1,0 +1,24 @@
+description The Save Editor window with a full inventory, the hood and the Swift Sail option: every icon must load
+save 17-StartWT
+windowed
+cvar gEnhancements.BetterWW.swift_sail 1
+cvar gOpenWindows.SaveEditor 1
+start load
+wait link
+collect swords
+collect songs
+collect pearls
+collect shards
+give boomerang
+give hookshot
+give bow
+give bombs 99
+give hammer
+give deku
+give grapple
+give telescope
+# mCollect[3] (0x803C4CBF) bit 0 the Pirate's Charm; mCollect[4] (0x803C4CC0): bit 0 Hero's Charm, bit 2 hood owned, bit 3 hood worn
+poke 0x803C4CBF=0x01/1
+poke 0x803C4CC0=0x0D/1
+wait 60
+winshot save_editor

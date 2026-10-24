@@ -1,0 +1,27 @@
+description The worn Bunny Hood keeps drawing across scene changes with a custom-model puppet (Anchor's self test) beside Link
+# BLUEWAKE_PUPPET_SELF: a copy of Link 80 units aside; its body is a custom Link.arc. The hood is on Link and (if it is sent) the copy.
+save 2-Pictobox
+windowed
+env BLUEWAKE_TEST_BUNNY 1
+env BLUEWAKE_PUPPET_SELF 80
+env BLUEWAKE_PUPPET_SELF_MODEL D:\Claude_WW\Workfolders\bluewake-but-good\local\scratch\wt3_local\young_Link.arc
+start load
+wait link
+poke 0x803C4CC0=0x0C/1
+wait 90
+shot a_outset
+warp sea 11 0
+wait 120
+shot b_windfall
+warp sea 44 0
+wait 120
+shot c_sea44
+warp sea 11 0
+wait 120
+shot d_windfall2
+warp sea 44 0
+wait 120
+shot e_sea44_2
+warp sea 11 0
+wait 120
+shot f_windfall3
