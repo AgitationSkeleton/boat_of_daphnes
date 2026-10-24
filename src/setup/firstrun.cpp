@@ -16,9 +16,19 @@
 #include <set>
 #include <sstream>
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#else
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/prctl.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <unistd.h>
+extern char** environ;
+#endif
 
 #ifndef BOD_VERSION
 #define BOD_VERSION "dev"
@@ -54,6 +64,14 @@ constexpr const char* kRandoSeed = "RV1";
 // Each step's share of the bar: about its share of the time.
 constexpr float kWeightGame[FirstRun::kSteps] = {0.02f, 0.01f, 0.05f, 0.91f, 0.01f, 0, 0, 0, 0, 0};
 constexpr float kWeightBoth[FirstRun::kSteps] = {0.01f, 0.005f, 0.02f, 0.43f, 0.005f, 0.04f, 0.025f, 0.43f, 0.005f, 0.03f};
+// The modules: tww_game.dll / tww_game_rando.dll on Windows, tww_game.so / tww_game_rando.so on Linux.
+#if defined(_WIN32)
+constexpr const char* kModGame = "tww_game.dll";
+constexpr const char* kModRando = "tww_game_rando.dll";
+#else
+constexpr const char* kModGame = "tww_game.so";
+constexpr const char* kModRando = "tww_game_rando.so";
+#endif
 constexpr const char* kStampGame = "tww_game.txt";
 constexpr const char* kStampRando = "tww_game_rando.txt";
 
@@ -203,13 +221,43 @@ std::string buildVersion() { return std::string(BOD_VERSION) + "/abi" + std::to_
 void writeStamp(const fs::path& p, const std::string& sha1) { std::ofstream(p) << "version=" << buildVersion() << "\nsha1=" << sha1 << "\n"; }
 
 // ---- child processes (the compiler, the linker, the randomizer's Python) ----
+// A child writes its output to a log file, runs at a lower priority, and ends with the game whatever happens to it (a job
+// object on Windows; on Linux the kernel's parent-death signal).
+using Args = std::vector<std::string>;                         // UTF-8, after the program
+using Env = std::vector<std::pair<std::string, std::string>>;  // added to ours
 struct Child {
+#if defined(_WIN32)
     HANDLE proc = nullptr;
+#else
+    pid_t pid = -1;
+#endif
     size_t index = 0;
     fs::path log;
 };
-bool spawn(HANDLE job, const fs::path& exe, const std::wstring& args, const fs::path& dir, const fs::path& logPath, Child& c, std::string& err,
-           const wchar_t* env = nullptr) {
+#if defined(_WIN32)
+struct Job {
+    HANDLE h = nullptr;
+};
+Job makeJob() {
+    Job j;
+    j.h = CreateJobObjectW(nullptr, nullptr);
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION li{};
+    li.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    SetInformationJobObject(j.h, JobObjectExtendedLimitInformation, &li, sizeof li);
+    return j;
+}
+void closeJob(Job& j) {
+    if (j.h) CloseHandle(j.h);
+    j.h = nullptr;
+}
+std::wstring widen(const std::string& s) {
+    if (s.empty()) return {};
+    std::wstring w(size_t(MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), nullptr, 0)), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), w.data(), int(w.size()));
+    return w;
+}
+bool spawn(Job& job, const fs::path& exe, const Args& args, const fs::path& dir, const fs::path& logPath, Child& c, std::string& err,
+           const Env& extraEnv = {}) {
     SECURITY_ATTRIBUTES sa{sizeof sa, nullptr, TRUE};
     HANDLE out = CreateFileW(logPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (out == INVALID_HANDLE_VALUE) return err = "can't write " + u8(logPath), false;
@@ -224,30 +272,131 @@ bool spawn(HANDLE job, const fs::path& exe, const std::wstring& args, const fs::
     si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
     si.StartupInfo.hStdOutput = si.StartupInfo.hStdError = out;
     si.lpAttributeList = attrs;
-    std::wstring cmd = L"\"" + exe.wstring() + L"\" " + args;
+    std::wstring cmd = L"\"" + exe.wstring() + L"\"";
+    for (const std::string& a : args) {
+        const std::wstring w = widen(a);
+        cmd += L' ';
+        cmd += (w.empty() || w.find_first_of(L" \t") != std::wstring::npos) ? L"\"" + w + L"\"" : w;
+    }
+    // its environment: ours, and what is added
+    std::wstring env;
+    if (!extraEnv.empty()) {
+        if (wchar_t* block = GetEnvironmentStringsW()) {
+            for (const wchar_t* p = block; *p; p += wcslen(p) + 1) env.append(p).push_back(L'\0');
+            FreeEnvironmentStringsW(block);
+        }
+        for (const auto& [k, v] : extraEnv) env.append(widen(k + "=" + v)).push_back(L'\0');
+        env.push_back(L'\0');
+    }
     PROCESS_INFORMATION pi{};
     const BOOL ok = CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, TRUE,
                                    CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS | EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED |
-                                       (env ? CREATE_UNICODE_ENVIRONMENT : 0),
-                                   const_cast<wchar_t*>(env), dir.c_str(), &si.StartupInfo, &pi);
+                                       (env.empty() ? 0 : CREATE_UNICODE_ENVIRONMENT),
+                                   env.empty() ? nullptr : env.data(), dir.c_str(), &si.StartupInfo, &pi);
     const DWORD e = GetLastError();
     DeleteProcThreadAttributeList(attrs);
     CloseHandle(out);
     if (!ok) return err = "couldn't start " + u8(exe.filename()) + " (error " + std::to_string(e) + ")", false;
-    AssignProcessToJobObject(job, pi.hProcess);  // ends with the game, whatever happens to it
+    AssignProcessToJobObject(job.h, pi.hProcess);  // ends with the game, whatever happens to it
     ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
     c.proc = pi.hProcess;
     c.log = logPath;
     return true;
 }
-HANDLE makeJob() {
-    HANDLE job = CreateJobObjectW(nullptr, nullptr);
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION li{};
-    li.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-    SetInformationJobObject(job, JobObjectExtendedLimitInformation, &li, sizeof li);
-    return job;
+// Waits up to `ms` for the child to end; true (and its exit code) once it has.
+bool reap(Child& c, int& code, unsigned ms) {
+    if (WaitForSingleObject(c.proc, ms) != WAIT_OBJECT_0) return false;
+    DWORD x = 1;
+    GetExitCodeProcess(c.proc, &x);
+    CloseHandle(c.proc);
+    c.proc = nullptr;
+    code = int(x);
+    return true;
 }
+void killChild(Child& c) {
+    if (!c.proc) return;
+    TerminateProcess(c.proc, 1);
+    WaitForSingleObject(c.proc, 5000);
+    CloseHandle(c.proc);
+    c.proc = nullptr;
+}
+// Sleeps until one of the children ends or `ms` have passed.
+void waitAny(const std::vector<Child>& active, unsigned ms) {
+    std::vector<HANDLE> hs;
+    for (const Child& c : active) hs.push_back(c.proc);
+    WaitForMultipleObjects(DWORD(hs.size()), hs.data(), FALSE, ms);
+}
+#else
+struct Job {};
+Job makeJob() { return {}; }
+void closeJob(Job&) {}
+bool spawn(Job&, const fs::path& exe, const Args& args, const fs::path& dir, const fs::path& logPath, Child& c, std::string& err,
+           const Env& extraEnv = {}) {
+    // everything the child needs is made before the fork: only system calls run between it and the exec
+    const std::string exeS = exe.string(), dirS = dir.string(), logS = logPath.string();
+    std::vector<std::string> argv{exeS};
+    argv.insert(argv.end(), args.begin(), args.end());
+    std::vector<char*> av;
+    for (std::string& a : argv) av.push_back(a.data());
+    av.push_back(nullptr);
+    std::vector<std::string> envS;
+    for (char** e = environ; e && *e; e++) {
+        bool replaced = false;
+        for (const auto& kv : extraEnv) replaced |= !std::strncmp(*e, (kv.first + "=").c_str(), kv.first.size() + 1);
+        if (!replaced) envS.push_back(*e);
+    }
+    for (const auto& [k, v] : extraEnv) envS.push_back(k + "=" + v);
+    std::vector<char*> ev;
+    for (std::string& e : envS) ev.push_back(e.data());
+    ev.push_back(nullptr);
+    const int out = ::open(logS.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (out < 0) return err = "can't write " + u8(logPath), false;
+    const pid_t parent = ::getpid();
+    const pid_t pid = ::fork();
+    if (pid < 0) {
+        ::close(out);
+        return err = "couldn't start " + u8(exe.filename()) + " (fork failed)", false;
+    }
+    if (pid == 0) {
+        ::setpgid(0, 0);                      // its own group: a cancel ends the compiler's helpers too
+        ::prctl(PR_SET_PDEATHSIG, SIGKILL);  // ends with the game, whatever happens to it
+        if (::getppid() != parent) ::_exit(127);
+        ::setpriority(PRIO_PROCESS, 0, 5);  // below normal
+        ::dup2(out, 1);
+        ::dup2(out, 2);
+        if (!dirS.empty() && ::chdir(dirS.c_str()) != 0) ::_exit(126);
+        ::execve(exeS.c_str(), av.data(), ev.data());
+        ::_exit(127);
+    }
+    ::close(out);
+    c.pid = pid;
+    c.log = logPath;
+    return true;
+}
+bool reap(Child& c, int& code, unsigned ms) {
+    for (unsigned waited = 0;; waited += 10) {
+        int st = 0;
+        const pid_t r = ::waitpid(c.pid, &st, WNOHANG);
+        if (r == c.pid || (r < 0 && errno != EINTR)) {
+            code = r == c.pid && WIFEXITED(st) ? WEXITSTATUS(st) : 1;
+            c.pid = -1;
+            return true;
+        }
+        if (waited >= ms) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+}
+void killChild(Child& c) {
+    if (c.pid <= 0) return;
+    ::kill(-c.pid, SIGKILL);
+    ::kill(c.pid, SIGKILL);
+    int st = 0;
+    ::waitpid(c.pid, &st, 0);
+    c.pid = -1;
+}
+void waitAny(const std::vector<Child>&, unsigned ms) { std::this_thread::sleep_for(std::chrono::milliseconds(std::min(ms, 50u))); }
+#endif
 std::string readText(const fs::path& p, size_t maxLines) {
     std::ifstream f(p);
     std::string out;
@@ -266,9 +415,60 @@ std::string tailText(const fs::path& p, size_t maxLines) {
 
 fs::path toolchain(const fs::path& exeDir) { return exeDir / "tools" / "llvm"; }
 fs::path randoDir(const fs::path& exeDir) { return exeDir / "rando"; }
+// The randomizer's Python: python/python.exe on Windows; on Linux python/bin/python3 (python-build-standalone).
+fs::path randoPython(const fs::path& exeDir) {
+#if defined(_WIN32)
+    return randoDir(exeDir) / "python" / "python.exe";
+#else
+    return randoDir(exeDir) / "python" / "bin" / "python3";
+#endif
+}
 bool haveRando(const fs::path& exeDir) {
     std::error_code ec;
-    return fs::exists(randoDir(exeDir) / "python" / "python.exe", ec) && fs::exists(randoDir(exeDir) / "patch_game.py", ec);
+    return fs::exists(randoPython(exeDir), ec) && fs::exists(randoDir(exeDir) / "patch_game.py", ec);
+}
+#if !defined(_WIN32)
+// A program on the PATH (the system's compiler, when none is bundled).
+fs::path onPath(const std::string& name) {
+    std::error_code ec;
+    const char* path = std::getenv("PATH");
+    std::stringstream ss(path ? path : "");
+    for (std::string dir; std::getline(ss, dir, ':');) {
+        const fs::path p = fs::path(dir.empty() ? "." : dir) / name;
+        if (fs::is_regular_file(p, ec) && ::access(p.c_str(), X_OK) == 0) return p;
+    }
+    return {};
+}
+#endif
+// The compiler and the linker the module is built with: the bundled ones (tools/llvm: clang and lld-link on Windows; clang
+// and ld.lld on Linux, with the libraries they load in tools/llvm/lib), else on Linux the system's.
+struct Tools {
+    fs::path clang, link;
+    Env env;  // what they need to start (Linux: the bundled libraries' folder)
+    bool ok() const { return !clang.empty() && !link.empty(); }
+};
+Tools findTools(const fs::path& exeDir) {
+    Tools t;
+    std::error_code ec;
+    const fs::path dir = toolchain(exeDir);
+#if defined(_WIN32)
+    if (fs::exists(dir / "clang.exe", ec) && fs::exists(dir / "lld-link.exe", ec)) t.clang = dir / "clang.exe", t.link = dir / "lld-link.exe";
+#else
+    if (fs::exists(dir / "clang", ec) && fs::exists(dir / "ld.lld", ec)) {
+        t.clang = dir / "clang", t.link = dir / "ld.lld";
+        if (fs::is_directory(dir / "lib", ec)) {
+            const char* old = std::getenv("LD_LIBRARY_PATH");
+            t.env.push_back({"LD_LIBRARY_PATH", u8(dir / "lib") + (old && *old ? std::string(":") + old : std::string())});
+        }
+    } else {
+        // (no bundled compiler: the system's clang, any version from 14 on, and its lld)
+        t.clang = onPath("clang");
+        for (int v = 40; v >= 14 && t.clang.empty(); v--) t.clang = onPath("clang-" + std::to_string(v));
+        t.link = onPath("ld.lld");
+        for (int v = 40; v >= 14 && t.link.empty(); v--) t.link = onPath("ld.lld-" + std::to_string(v));
+    }
+#endif
+    return t;
 }
 
 // ---- the two programs' functions that differ (tools/rando/module_diff.py) ----
@@ -348,8 +548,8 @@ bool FirstRun::looksRight(const fs::path& path, std::string& why) {
 bool FirstRun::needed(const fs::path& exeDir, const fs::path& disc) {
     (void)disc;
     std::error_code ec;
-    if (!fs::exists(exeDir / "tww_game.dll", ec) || readStamp(exeDir / kStampGame).version != buildVersion()) return true;
-    if (haveRando(exeDir) && (!fs::exists(exeDir / "tww_game_rando.dll", ec) || readStamp(exeDir / kStampRando).version != buildVersion()))
+    if (!fs::exists(exeDir / kModGame, ec) || readStamp(exeDir / kStampGame).version != buildVersion()) return true;
+    if (haveRando(exeDir) && (!fs::exists(exeDir / kModRando, ec) || readStamp(exeDir / kStampRando).version != buildVersion()))
         return true;
     return false;
 }
@@ -358,8 +558,17 @@ void FirstRun::start(const fs::path& exeDir, const fs::path& disc) {
     if (m_running) return;
     if (m_thread.joinable()) m_thread.join();
     m_exeDir = exeDir, m_disc = disc, m_logFile = exeDir / "setup.log";
+#if defined(_WIN32)
     const char* la = std::getenv("LOCALAPPDATA");
     m_work = la ? fs::path(std::u8string(reinterpret_cast<const char8_t*>(la))) / "BoatOfDaphnes" / "build" : exeDir / "setup_work";
+#else
+    // (some GB of work files: the cache folder, else beside the program)
+    const char* cache = std::getenv("XDG_CACHE_HOME");
+    const char* home = std::getenv("HOME");
+    m_work = cache && *cache ? fs::path(cache) / "BoatOfDaphnes" / "build"
+             : home && *home ? fs::path(home) / ".cache" / "BoatOfDaphnes" / "build"
+                             : exeDir / "setup_work";
+#endif
     {
         std::lock_guard g(m_lock);
         m_status = {};
@@ -424,25 +633,34 @@ void FirstRun::run() {
             }
             fs::remove(probe, ec);
         }
-        const fs::path tools = toolchain(m_exeDir);
-        if (!fs::exists(tools / "clang.exe", ec) || !fs::exists(tools / "lld-link.exe", ec) || !fs::exists(m_exeDir / "boat-of-daphnes.lib", ec)) {
+        const Tools tools = findTools(m_exeDir);
+        m_clang = tools.clang, m_linker = tools.link, m_toolEnv = tools.env;
+#if defined(_WIN32)
+        if (!tools.ok() || !fs::exists(m_exeDir / "boat-of-daphnes.lib", ec)) {
             fail("Files the setup needs are missing (tools/llvm, boat-of-daphnes.lib). Extract the whole download again.");
             break;
         }
+#else
+        if (!tools.ok()) {
+            fail("The setup needs a compiler and the files it comes with are missing (tools/llvm). Extract the whole download again, "
+                 "or install clang and lld with your package manager.");
+            break;
+        }
+#endif
         fs::remove_all(m_work, ec);
         fs::create_directories(m_work, ec);
         // The game: built unless the one there was built by this version.
-        if (!fs::exists(m_exeDir / "tww_game.dll", ec) || readStamp(m_exeDir / kStampGame).version != buildVersion()) {
+        if (!fs::exists(m_exeDir / kModGame, ec) || readStamp(m_exeDir / kStampGame).version != buildVersion()) {
             std::string sha1;
-            if (!buildGame(Check, m_disc, "tww_game.dll", "gen", false, sha1)) break;
+            if (!buildGame(Check, m_disc, kModGame, "gen", false, sha1)) break;
             writeStamp(m_exeDir / kStampGame, sha1);
         }
         // The randomizer, when its generator is here.
-        if (haveRando(m_exeDir) && (!fs::exists(m_exeDir / "tww_game_rando.dll", ec) || readStamp(m_exeDir / kStampRando).version != buildVersion())) {
+        if (haveRando(m_exeDir) && (!fs::exists(m_exeDir / kModRando, ec) || readStamp(m_exeDir / kStampRando).version != buildVersion())) {
             std::string sha1;
             if (!fs::exists(m_work / "gen", ec) && !buildGame(Check, m_disc, nullptr, "gen", false, sha1)) break;
             if (!patchRando()) break;
-            if (!buildGame(RandoPatch, m_exeDir / "game" / "rando" / "GZLE99.iso", "tww_game_rando.dll", "gen_rando", true, sha1)) break;
+            if (!buildGame(RandoPatch, m_exeDir / "game" / "rando" / "GZLE99.iso", kModRando, "gen_rando", true, sha1)) break;
             if (!extras()) break;
             writeStamp(m_exeDir / kStampRando, sha1);
         }
@@ -571,50 +789,71 @@ bool FirstRun::compile(int step, const fs::path& gen, const fs::path& objDir, bo
     std::sort(srcs.begin(), srcs.end(), [](const Src& a, const Src& b) { return a.size > b.size; });
     uint64_t total = 0, done = 0;
     for (const Src& s : srcs) total += s.size;
+    uint64_t availPhys = 0, totalPhys = 0;
+#if defined(_WIN32)
     MEMORYSTATUSEX ms{sizeof ms};
     GlobalMemoryStatusEx(&ms);
+    availPhys = ms.ullAvailPhys, totalPhys = ms.ullTotalPhys;
+#else
+    {  // /proc/meminfo, in kB
+        std::ifstream mi("/proc/meminfo");
+        for (std::string l; std::getline(mi, l);) {
+            unsigned long long kb = 0;
+            if (std::sscanf(l.c_str(), "MemAvailable: %llu kB", &kb) == 1) availPhys = kb << 10;
+            else if (std::sscanf(l.c_str(), "MemTotal: %llu kB", &kb) == 1) totalPhys = kb << 10;
+        }
+        if (!availPhys) availPhys = totalPhys;
+    }
+#endif
     const unsigned threads = std::max(1u, std::thread::hardware_concurrency());
-    const uint64_t byFree = ms.ullAvailPhys / (400ull << 20), byInstalled = ms.ullTotalPhys / (2048ull << 20);
+    const uint64_t byFree = availPhys / (400ull << 20), byInstalled = totalPhys / (2048ull << 20);
     const unsigned jobs = std::min({threads, unsigned(std::max<uint64_t>({1, byFree, byInstalled})), 32u});
     log("compiling " + std::to_string(srcs.size()) + " files (" + fmtBytes(total) + ") with " + std::to_string(jobs) + " at a time");
     fs::create_directories(objDir, ec);
-    const fs::path clang = toolchain(m_exeDir) / "clang.exe";
-    HANDLE job = makeJob();
+#if defined(_WIN32)
+    const char* objExt = ".obj";
+#else
+    const char* objExt = ".o";
+#endif
+    Job job = makeJob();
     std::vector<Child> active;
     size_t next = 0, finished = 0;
     m_objects.clear();
     auto stopAll = [&] {
-        for (Child& c : active) TerminateProcess(c.proc, 1), WaitForSingleObject(c.proc, 5000), CloseHandle(c.proc);
+        for (Child& c : active) killChild(c);
         active.clear();
-        CloseHandle(job);
+        closeJob(job);
     };
     while (next < srcs.size() || !active.empty()) {
         if (m_cancel) return stopAll(), fail("cancelled");
         while (active.size() < jobs && next < srcs.size()) {
             const Src& s = srcs[next];
-            const fs::path obj = objDir / s.path.filename().replace_extension(".obj");
-            const std::wstring args = L"--target=x86_64-pc-windows-msvc -std=c++20 -O2 -g0 -ffreestanding -nostdinc -fno-exceptions -fno-rtti "
-                                      L"-fno-threadsafe-statics -DSA2B_GAME_DLL " +
-                                      std::wstring(rando ? L"-DrunOverride=runOverrideRando " : L"") + L"-I\"" + (m_work / "include").wstring() +
-                                      L"\" -I\"" + gen.wstring() + L"\" -w -c \"" + s.path.wstring() + L"\" -o \"" + obj.wstring() + L"\"";
+            const fs::path obj = objDir / s.path.filename().replace_extension(objExt);
+            Args args = {
+#if defined(_WIN32)
+                "--target=x86_64-pc-windows-msvc",
+#else
+                "--target=x86_64-unknown-linux-gnu", "-fPIC", "-fvisibility=hidden", "-fno-stack-protector", "-fcf-protection=none",
+#endif
+                "-std=c++20", "-O2", "-g0", "-ffreestanding", "-nostdinc", "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics",
+                "-DSA2B_GAME_DLL"};
+            if (rando) args.push_back("-DrunOverride=runOverrideRando");
+            args.insert(args.end(), {"-I" + u8(m_work / "include"), "-I" + u8(gen), "-w", "-c", u8(s.path), "-o", u8(obj)});
             Child c;
             std::string err;
-            if (!spawn(job, clang, args, m_work, objDir / s.path.filename().replace_extension(".log"), c, err)) return stopAll(), fail(err);
+            if (!spawn(job, m_clang, args, m_work, objDir / s.path.filename().replace_extension(".log"), c, err, m_toolEnv))
+                return stopAll(), fail(err);
             c.index = next++;
             active.push_back(c);
             m_objects.push_back(obj);
         }
-        std::vector<HANDLE> hs;
-        for (const Child& c : active) hs.push_back(c.proc);
-        WaitForMultipleObjects(DWORD(hs.size()), hs.data(), FALSE, 250);
+        waitAny(active, 250);
         for (size_t i = 0; i < active.size();) {
-            if (WaitForSingleObject(active[i].proc, 0) != WAIT_OBJECT_0) {
+            int code = 1;
+            if (!reap(active[i], code, 0)) {
                 i++;
                 continue;
             }
-            DWORD code = 1;
-            GetExitCodeProcess(active[i].proc, &code);
-            CloseHandle(active[i].proc);
             const Child c = active[i];
             active.erase(active.begin() + ptrdiff_t(i));
             if (code != 0) {
@@ -627,36 +866,42 @@ bool FirstRun::compile(int step, const fs::path& gen, const fs::path& objDir, bo
         }
         set(step, float(double(done) / double(total)), std::to_string(finished) + " of " + std::to_string(srcs.size()) + " files");
     }
-    CloseHandle(job);
+    closeJob(job);
     log("compiled");
     return true;
 }
 
-// The module: no C library, no entry point; the runtime's functions from boat-of-daphnes.lib.
+// The module: no C library, no entry point; the runtime's functions from boat-of-daphnes.lib (Windows) or, on Linux, left
+// undefined to be bound to the program's exported names when the module is loaded.
 bool FirstRun::link(int step, const fs::path& objDir, const char* dll) {
     set(step, 0, "");
     {
         std::ofstream rsp(objDir / "objs.rsp");
         for (const fs::path& o : m_objects) rsp << "\"" << o.generic_string() << "\"\n";
     }
-    const std::wstring args = L"/nologo /dll /noentry /nodefaultlib /machine:x64 /opt:ref /opt:noicf /out:\"" + (objDir / dll).wstring() +
-                              L"\" @\"" + (objDir / "objs.rsp").wstring() + L"\" \"" + (m_exeDir / "boat-of-daphnes.lib").wstring() + L"\"";
-    HANDLE job = makeJob();
+#if defined(_WIN32)
+    const Args args = {"/nologo", "/dll", "/noentry", "/nodefaultlib", "/machine:x64", "/opt:ref", "/opt:noicf", "/out:" + u8(objDir / dll),
+                       "@" + u8(objDir / "objs.rsp"), u8(m_exeDir / "boat-of-daphnes.lib")};
+#else
+    // (lld reads quoted names from a response file, as the compiler's drivers do)
+    const Args args = {"-shared", "-Bsymbolic", "--gc-sections", "-z", "noexecstack", "--build-id=none", "-soname=" + std::string(dll),
+                       "-o", u8(objDir / dll), "@" + u8(objDir / "objs.rsp")};
+#endif
+    Job job = makeJob();
     Child c;
     std::string err;
-    if (!spawn(job, toolchain(m_exeDir) / "lld-link.exe", args, m_work, objDir / "link.log", c, err)) return CloseHandle(job), fail(err);
+    if (!spawn(job, m_linker, args, m_work, objDir / "link.log", c, err, m_toolEnv)) return closeJob(job), fail(err);
     const auto t0 = std::chrono::steady_clock::now();
-    while (WaitForSingleObject(c.proc, 100) == WAIT_TIMEOUT) {
+    int code = 1;
+    while (!reap(c, code, 100)) {
         if (m_cancel) {
-            TerminateProcess(c.proc, 1);
-            CloseHandle(c.proc), CloseHandle(job);
+            killChild(c);
+            closeJob(job);
             return fail("cancelled");
         }
         set(step, 1 - std::exp(-std::chrono::duration<float>(std::chrono::steady_clock::now() - t0).count() / 2.f), "");
     }
-    DWORD code = 1;
-    GetExitCodeProcess(c.proc, &code);
-    CloseHandle(c.proc), CloseHandle(job);
+    closeJob(job);
     if (code != 0) {
         log("linker error:\n" + readText(objDir / "link.log", 20));
         return fail("The linker stopped. The details are in setup.log.");
@@ -695,35 +940,26 @@ bool FirstRun::patchRando() {
         }
     }
     const fs::path rando = randoDir(m_exeDir);
-    const std::wstring args = L"\"" + (rando / "patch_game.py").wstring() + L"\" --iso \"" + iso.wstring() + L"\" --out \"" +
-                              (m_work / "ref").wstring() + L"\" --seed " + std::wstring(kRandoSeed, kRandoSeed + std::strlen(kRandoSeed)) +
-                              L" --options \"" + (rando / "reference-options.json").wstring() + L"\" --files code --iso-out \"" +
-                              (gameDir / "rando" / "GZLE99.iso").wstring() + L"\"";
+    const Args args = {u8(rando / "patch_game.py"), "--iso", u8(iso), "--out", u8(m_work / "ref"), "--seed", kRandoSeed, "--options",
+                       u8(rando / "reference-options.json"), "--files", "code", "--iso-out", u8(gameDir / "rando" / "GZLE99.iso")};
     // its environment: ours, and where the generator's runtime is
-    std::wstring env;
-    if (wchar_t* block = GetEnvironmentStringsW()) {
-        for (const wchar_t* p = block; *p; p += wcslen(p) + 1) env.append(p).push_back(L'\0');
-        FreeEnvironmentStringsW(block);
-    }
-    env.append(L"RANDO_RUNTIME=" + rando.wstring()).push_back(L'\0');
-    env.push_back(L'\0');
-    HANDLE job = makeJob();
+    const Env env = {{"RANDO_RUNTIME", u8(rando)}};
+    Job job = makeJob();
     Child c;
     std::string err;
-    if (!spawn(job, rando / "python" / "python.exe", args, rando, m_work / "rando_patch.log", c, err, env.c_str())) return CloseHandle(job), fail(err);
+    if (!spawn(job, randoPython(m_exeDir), args, rando, m_work / "rando_patch.log", c, err, env)) return closeJob(job), fail(err);
     const auto t0 = std::chrono::steady_clock::now();
-    while (WaitForSingleObject(c.proc, 200) == WAIT_TIMEOUT) {
+    int code = 1;
+    while (!reap(c, code, 200)) {
         if (m_cancel) {
-            TerminateProcess(c.proc, 1);
-            CloseHandle(c.proc), CloseHandle(job);
+            killChild(c);
+            closeJob(job);
             return fail("cancelled");
         }
         const float s = std::chrono::duration<float>(std::chrono::steady_clock::now() - t0).count();
         set(RandoPatch, 0.3f + 0.7f * (1 - std::exp(-s / 40.f)), "The Wind Waker Randomizer is patching the game");
     }
-    DWORD code = 1;
-    GetExitCodeProcess(c.proc, &code);
-    CloseHandle(c.proc), CloseHandle(job);
+    closeJob(job);
     if (code != 0 || !fs::exists(gameDir / "rando" / "GZLE99.iso", ec)) {
         log("randomizer patch error:\n" + tailText(m_work / "rando_patch.log", 25));
         return fail("The randomizer couldn't make its game from your disc. The details are in setup.log.");
@@ -787,35 +1023,26 @@ bool FirstRun::extras() {
     set(Extras, 0.5f, "Link's colours and Swift Sail's textures");
     {
         const fs::path rando = randoDir(m_exeDir);
-        std::wstring env;
-        if (wchar_t* block = GetEnvironmentStringsW()) {
-            for (const wchar_t* p = block; *p; p += wcslen(p) + 1) env.append(p).push_back(L'\0');
-            FreeEnvironmentStringsW(block);
-        }
-        env.append(L"PYTHONPATH=" + (rando / "site-packages").wstring()).push_back(L'\0');
-        env.append(L"RANDO_RUNTIME=" + rando.wstring()).push_back(L'\0');
-        env.push_back(L'\0');
-        const fs::path iso = fs::exists(m_exeDir / "game" / "GZLE01.iso", ec) ? m_exeDir / "game" / "GZLE01.iso" : m_disc;
-        const std::wstring jobs[] = {
-            L"\"" + (rando / "link_colors.py").wstring() + L"\" \"" + iso.wstring() + L"\" \"" + (m_exeDir / "assets" / "link_colors").wstring() +
-                L"\" --masks \"" + (rando / "wwrando" / "assets" / "link_color_masks").wstring() + L"\"",
-            L"\"" + (rando / "swift_sail.py").wstring() + L"\" \"" + iso.wstring() + L"\" \"" + (m_exeDir / "assets" / "swift_sail").wstring() + L"\"",
+        const Env env = {{"PYTHONPATH", u8(rando / "site-packages")}, {"RANDO_RUNTIME", u8(rando)}};
+        const std::string iso = u8(fs::exists(m_exeDir / "game" / "GZLE01.iso", ec) ? m_exeDir / "game" / "GZLE01.iso" : m_disc);
+        const Args jobs[] = {
+            {u8(rando / "link_colors.py"), iso, u8(m_exeDir / "assets" / "link_colors"), "--masks", u8(rando / "wwrando" / "assets" / "link_color_masks")},
+            {u8(rando / "swift_sail.py"), iso, u8(m_exeDir / "assets" / "swift_sail")},
             // the Bunny Hood's model and icon, made from the disc's wall mask and Link (Boat of Daphnes' bunny_hood.py)
-            L"\"" + (rando / "bunny_hood.py").wstring() + L"\" \"" + iso.wstring() + L"\" \"" + (m_exeDir / "assets" / "bunnyhood").wstring() + L"\""};
+            {u8(rando / "bunny_hood.py"), iso, u8(m_exeDir / "assets" / "bunnyhood")}};
         int n = 0;
-        for (const std::wstring& args : jobs) {
-            HANDLE job = makeJob();
+        for (const Args& args : jobs) {
+            Job job = makeJob();
             Child c;
             std::string err;
-            if (!spawn(job, rando / "python" / "python.exe", args, rando, m_work / ("extras" + std::to_string(n) + ".log"), c, err, env.c_str())) {
-                CloseHandle(job);
+            if (!spawn(job, randoPython(m_exeDir), args, rando, m_work / ("extras" + std::to_string(n) + ".log"), c, err, env)) {
+                closeJob(job);
                 log("not made: " + err);
                 continue;
             }
-            WaitForSingleObject(c.proc, INFINITE);
-            DWORD code = 1;
-            GetExitCodeProcess(c.proc, &code);
-            CloseHandle(c.proc), CloseHandle(job);
+            int code = 1;
+            while (!reap(c, code, 1000)) {}
+            closeJob(job);
             if (code != 0) log("extras " + std::to_string(n) + " failed:\n" + tailText(m_work / ("extras" + std::to_string(n) + ".log"), 10));
             set(Extras, 0.5f + 0.5f / 3.f * float(++n), "Link's colours, Swift Sail's textures and the Bunny Hood");
         }
