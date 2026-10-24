@@ -89,6 +89,7 @@ struct EquipPart {
     std::vector<const char*> textures;
     float window = 0.f; // see exchange
     float min_sat = 25.f;
+    bool tint = false;  // grey metal: the chosen colour is tinted over the texture's own light and shade (see tint_image)
 };
 const EquipPart kEquip[] = {
     {"Equip.HeroSword.Blade", 0xF0F5D8, {"SWAS3TC"}},
@@ -109,11 +110,17 @@ const EquipPart kEquip[] = {
     {"Equip.Bow.Body", 0xDDA308, {"BowS3TC"}},
     {"Equip.Arrow.Body", 0xC2A978, {"arrowS3TC"}},
     {"Equip.Boomerang.Body", 0xEFF054, {"Boomerang"}},
-    {"Equip.Hookshot.Body", 0x769BF6, {"hookshotCI8"}},
+    {"Equip.Hookshot.Body", 0x7D8AB0, {"hookshotCI8", "ropeEND"}, 0.f, 25.f, true},
     {"Equip.DekuLeaf.Leaf", 0x14941B, {"fanAS3TC", "fanBS3TC", "fanCS3TC"}},
     {"Equip.Bomb.Body", 0xF8B740, {"Bomb"}},
     {"Equip.Telescope.Body", 0xC56121, {"Telescoe"}},
     {"Equip.PowerBracelets.Body", 0xEEE349, {"PRingS3TC"}},
+    {"Equip.SkullHammer.Body", 0x6B665B, {"hammerCI8"}, 0.f, 25.f, true},
+    {"Equip.IronBoots.Body", 0xB7B7B7, {"HeavybootsI4"}, 0.f, 25.f, true},
+    {"Equip.PictoBox.Body", 0xBC270A, {"cameraS3TC"}},
+    {"Equip.TingleTuner.Body", 0x028731, {"TceiverCI8"}},
+    {"Equip.Baton.Body", 0xCCCCCC, {"taktCI4"}, 0.f, 25.f, true},
+    {"Equip.HyoiPear.Body", 0xD8B33B, {"hyoinomiS3TC"}},
 };
 std::vector<Texture> g_equip; // the textures of kEquip, from index.json "equipment"
 
@@ -132,7 +139,10 @@ const EquipModel kEquipModels[] = {
     {"hookshot.bdl", "Equip.Hookshot.Body"},    {"fan.bdl", "Equip.DekuLeaf.Leaf"},
     {"fanb.bdl", "Equip.DekuLeaf.Leaf"},        {"fansmall.bdl", "Equip.DekuLeaf.Leaf"},
     {"bomb.bdl", "Equip.Bomb.Body"},            {"telescope.bdl", "Equip.Telescope.Body"},
-    {"pring.bdl", "Equip.PowerBracelets.Body"},
+    {"pring.bdl", "Equip.PowerBracelets.Body"}, {"hammer.bdl", "Equip.SkullHammer.Body"},
+    {"hboots.bdl", "Equip.IronBoots.Body"},     {"ropeend.bdl", "Equip.Hookshot.Body"},
+    {"camera.bdl", "Equip.PictoBox.Body"},      {"tceiver.bdl", "Equip.TingleTuner.Body"},
+    {"takt.bdl", "Equip.Baton.Body"},           {"hyoinomi.bdl", "Equip.HyoiPear.Body"},
 };
 // Textures of those models that are effects or lighting, never coloured.
 bool equip_skip(const std::string& name) {
@@ -144,6 +154,7 @@ struct ModEquip {
     Texture tex;
     const char* part = nullptr;
     uint32_t own = 0;  // its main colour
+    bool tint = false; // no colour to shift (grey metal): tinted instead
 };
 std::vector<ModEquip> g_mod_equip;
 
@@ -300,6 +311,42 @@ void exchange(Image& img, const Image* mask, uint32_t base, uint32_t chosen, boo
     }
 }
 
+// Grey metal has no hue to shift. The chosen colour is laid over the texture's own light and shade instead: a pixel as
+// bright as the texture's average becomes the chosen colour, a darker one a darker shade of it, and a brighter one the
+// same colour brighter (its strongest channel stops at full and the highlights go a little towards white). Alpha stays.
+// ref (the untouched texture) is where the light is read from.
+void tint_image(Image& img, uint32_t chosen, const Image& ref) {
+    const size_t count = static_cast<size_t>(img.width) * img.height;
+    double sum = 0;
+    size_t seen = 0;
+    const auto luma = [](const uint8_t* p) { return 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]; };
+    for (size_t i = 0; i < count; ++i)
+        if (ref.bytes[i * 4 + 3] > 128)
+            sum += luma(&ref.bytes[i * 4]), ++seen;
+    const double mean = seen ? std::max(sum / double(seen), 8.0) : 128.0;
+    const double c[3] = {double(chosen >> 16 & 255), double(chosen >> 8 & 255), double(chosen & 255)};
+    for (size_t i = 0; i < count; ++i) {
+        const double k = luma(&ref.bytes[i * 4]) / mean;
+        double out[3] = {c[0] * k, c[1] * k, c[2] * k};
+        const double top = std::max({out[0], out[1], out[2]});
+        double white = 0.0;
+        if (top > 255.0) {  // brighter than the colour can go: keep its hue, and the brightest light towards white
+            white = std::min(0.5, (top / 255.0 - 1.0) * 0.35);
+            for (double& v : out) v *= 255.0 / top;
+        }
+        for (int ch = 0; ch < 3; ++ch)
+            img.bytes[i * 4 + ch] = static_cast<uint8_t>(std::lround(std::clamp(out[ch] + (255.0 - out[ch]) * white, 0.0, 255.0)));
+    }
+}
+
+// A texture of an equipment part in the chosen colour: tinted for grey metal, else hue shifted from the part's base.
+void recolor_equip(Image& img, const EquipPart& part, uint32_t chosen, const Image& ref) {
+    if (part.tint)
+        tint_image(img, chosen, ref);
+    else
+        exchange(img, nullptr, part.base, chosen, false, part.window, part.min_sat, &ref);
+}
+
 std::string id_of(bool casual, const std::string& name) {
     std::string compact;
     for (char ch : name)
@@ -404,7 +451,7 @@ void apply_equipment() {
             const uint32_t rgb = (uint32_t(rgba[0]) << 16) | (uint32_t(rgba[1]) << 8) | rgba[2];
             if (rgb == part.base)
                 continue;
-            exchange(img, nullptr, part.base, rgb, false, part.window, part.min_sat, &t.base);
+            recolor_equip(img, part, rgb, t.base);
             any = true;
         }
         if (t.registered) {
@@ -440,7 +487,10 @@ void apply_equipment() {
         const uint32_t rgb = (uint32_t(rgba[0]) << 16) | (uint32_t(rgba[1]) << 8) | rgba[2];
         if (rgb == base) continue;  // the part is as the game has it: the mod's own colours stay
         Image img = t.base;
-        exchange(img, nullptr, m.own, rgb, false, 0.f, 25.f, &t.base);
+        if (m.tint)
+            tint_image(img, rgb, t.base);
+        else
+            exchange(img, nullptr, m.own, rgb, false, 0.f, 25.f, &t.base);
         t.live = std::move(img.bytes);
         aurora::texture::RawTextureReplacement raw{};
         raw.bytes = std::span<const uint8_t>(t.live.data(), t.live.size());
@@ -820,7 +870,7 @@ void SetPlayerColors(int id, const std::string& spec) {
                 mine = mine || t.name == name;
             const auto it = mine ? colors.find(part.id) : colors.end();
             if (it != colors.end() && it->second != part.base)
-                exchange(img, nullptr, part.base, it->second, false, part.window, part.min_sat, &t.base);
+                recolor_equip(img, part, it->second, t.base);
         }
         live.pixels.push_back(std::move(img.bytes));
         aurora::texture::RawTextureReplacement raw{};
@@ -871,7 +921,7 @@ void UseEquipmentArc(const std::vector<uint8_t>* arc) {
                 for (const char* n : part.textures)
                     if (name == n) m.part = part.id;
             m.own = main_colour(m.tex.base);
-            if (m.own == 0) continue;  // no colour to shift (grey metal)
+            if (m.own == 0) m.tint = true;  // no colour to shift (grey metal): tinted
             g_mod_equip.push_back(std::move(m));
         }
     }

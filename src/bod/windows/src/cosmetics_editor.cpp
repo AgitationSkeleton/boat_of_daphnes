@@ -81,7 +81,8 @@ const Option kOptions[] = {
     // Spin attack effects (runtime/host/src/cosmetics.c): the particles' emitters take the color while they play.
     {"Trails.SpinCharge", "Spin Attack (Charge)", TRAILS, 0xFFFFFF},
     {"Trails.SpinAttack", "Spin Attack", TRAILS, 0xFFFFFF},
-    // Equipment: the textures' hue shifts from the color shown to the one chosen (windows/src/link_colors.cpp).
+    // Equipment: the textures' hue shifts from the color shown to the one chosen; grey metal ("tinted") takes the color over
+    // its own light and shade (windows/src/link_colors.cpp).
     {"Equip.HeroSword.Blade", "Hero's Sword Blade", SWORDS, 0xF0F5D8},
     {"Equip.HeroSword.Hilt", "Hero's Sword Hilt", SWORDS, 0xBAA674},
     {"Equip.MasterSword.Blade", "Master Sword Blade", SWORDS, 0xE8E8E8},
@@ -95,11 +96,17 @@ const Option kOptions[] = {
     {"Equip.Bow.Body", "Hero's Bow (Zelda's too)", ITEMS, 0xDDA308},
     {"Equip.Arrow.Body", "Arrows", ITEMS, 0xC2A978},
     {"Equip.Boomerang.Body", "Boomerang", ITEMS, 0xEFF054},
-    {"Equip.Hookshot.Body", "Hookshot", ITEMS, 0x769BF6},
+    {"Equip.Hookshot.Body", "Grappling Hook (tinted)", ITEMS, 0x7D8AB0},
     {"Equip.DekuLeaf.Leaf", "Deku Leaf", ITEMS, 0x14941B},
     {"Equip.Bomb.Body", "Bombs", ITEMS, 0xF8B740},
     {"Equip.Telescope.Body", "Telescope", ITEMS, 0xC56121},
     {"Equip.PowerBracelets.Body", "Power Bracelets", ITEMS, 0xEEE349},
+    {"Equip.SkullHammer.Body", "Skull Hammer (tinted)", ITEMS, 0x6B665B},
+    {"Equip.IronBoots.Body", "Iron Boots (tinted)", ITEMS, 0xB7B7B7},
+    {"Equip.PictoBox.Body", "Picto Box", ITEMS, 0xBC270A},
+    {"Equip.TingleTuner.Body", "Tingle Tuner", ITEMS, 0x028731},
+    {"Equip.Baton.Body", "Wind Waker (tinted)", ITEMS, 0xCCCCCC},
+    {"Equip.HyoiPear.Body", "Hyoi Pear", ITEMS, 0xD8B33B},
     // The King of Red Lions (Ship.arc's textures, windows/src/link_colors.cpp): the hull and figurehead's red wood, the sail's picture.
     {"Equip.Ship.Hull", "Hull", SHIP, 0xC44B29},
     {"Equip.Ship.Head", "Figurehead", SHIP, 0xC84321},
@@ -212,7 +219,7 @@ void push(const Option& o, CVarColor c, bool is_changed) {
 // Whether the color reaches the game through link_colors' textures (Link's clothes, swords, shields).
 bool uses_link_colors(const Option& o) {
     return o.group == HERO || o.group == CASUAL || o.group == SWORDS || o.group == SHIELDS || o.group == SHIP || o.group == TETRA ||
-           o.group == ZELDA;
+           o.group == ZELDA || o.group == ITEMS;
 }
 
 void apply(const Option& o) {
@@ -674,6 +681,22 @@ void apply_stock_preset_named(const std::string& spec) {
     const size_t colon = spec.find(':');
     if (colon == std::string::npos)
         return;
+    if (spec.compare(0, colon, "equip") == 0) { // equip:Equip.SkullHammer.Body=ff0000;Equip.Hookshot.Body=00ff00
+        for (size_t at = colon + 1; at < spec.size();) {
+            const size_t end = std::min(spec.find(';', at), spec.size()), eq = spec.find('=', at);
+            if (eq == std::string::npos || eq > end)
+                break;
+            const std::string id = spec.substr(at, eq - at);
+            const unsigned long rgb = std::strtoul(spec.substr(eq + 1, end - eq - 1).c_str(), nullptr, 16);
+            for (const Option& o : options())
+                if (id == o.id) {
+                    set_color(o, CVarColor{static_cast<uint8_t>(rgb >> 16), static_cast<uint8_t>(rgb >> 8), static_cast<uint8_t>(rgb), 255});
+                    std::fprintf(stderr, "[test] %s set to %06lx\n", o.id, rgb);
+                }
+            at = end + 1;
+        }
+        return;
+    }
     if (spec.compare(0, colon, "hood") == 0) { // hood:MM Styled
         for (const HoodPreset& p : kHoodPresets)
             if (spec.compare(colon + 1, std::string::npos, p.name) == 0) {

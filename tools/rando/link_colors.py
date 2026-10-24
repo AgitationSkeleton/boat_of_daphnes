@@ -114,6 +114,14 @@ EQUIPMENT = (
     ("Bomb", "bdlm/bomb.bdl", "Bomb"),
     ("Telescoe", "bdlc/telescope.bdl", "Telescoe"),
     ("PRingS3TC", "bdl/pring.bdl", "PRingS3TC"),
+    # The Skull Hammer and Iron Boots, the grappling hook's rope end, the baton, and the picto box, tuner and pear (BR-0029).
+    ("hammerCI8", "bdl/hammer.bdl", "hammerCI8"),
+    ("HeavybootsI4", "bdlc/hboots.bdl", "HeavybootsI4"),
+    ("ropeEND", "bdlc/ropeend.bdl", "ropeEND"),
+    ("taktCI4", "bdlm/takt.bdl", "taktCI4"),
+    ("cameraS3TC", "bdl/camera.bdl", "cameraS3TC"),
+    ("TceiverCI8", "bdl/tceiver.bdl", "TceiverCI8"),
+    ("hyoinomiS3TC", "bdl/hyoinomi.bdl", "hyoinomiS3TC"),
 )
 
 # Which texture the body mask of each outfit paints.
