@@ -227,7 +227,10 @@ bool readRates(const Sample& s, double t, float* yaw, float* pitch, bool continu
         if (moved) {
             beginCalibration(t);  // restart the window: keep still
             s_status = "Calibrating: keep the controller still";
-            if (!s_calibratedOnce && t > s_calGiveUp) s_calibrating = false;  // (the start-up calibration does not hold the gyro hostage)
+            if (!s_calibratedOnce && t > s_calGiveUp) {
+                s_calibrating = false;  // (the start-up calibration does not hold the gyro hostage)
+                log("[gyro] start-up calibration gave up (the controller never held still for a second); offset 0, drift follow on\n");
+            }
         } else if (dur >= 1.0 && s_calCount >= 8) {
             for (int i = 0; i < 3; i++) s_bias[i] = float(s_calSum[i] / s_calCount);
             s_calibrating = false;
@@ -323,6 +326,26 @@ void gyroPoll(PADStatus& pad, u64 frame) {
             if (s_hasAccel) ok = SDL_GetGamepadSensorData(s_pad, SDL_SENSOR_ACCEL, s.accel, 3) && ok;
             else s.accel[1] = 9.81f;
             if (ok) have = readRates(s, t, &yawRate, &pitchRate, bod::cvarInt("gSettings.Controls.Gyro.AutoCalibrate", 1) != 0 && !active);
+            // BLUEWAKE_GYRO_LOG=1: once a second, whether samples come and what they read (a real controller's check)
+            static const bool s_diag = std::getenv("BLUEWAKE_GYRO_LOG") != nullptr;
+            static double s_diagNext = 0;
+            static int s_diagOk = 0, s_diagAll = 0;
+            static float s_diagMax = 0;
+            if (s_diag) {
+                s_diagAll++;
+                if (ok) {
+                    s_diagOk++;
+                    s_diagMax = std::max(s_diagMax, std::sqrt(s.gyro[0] * s.gyro[0] + s.gyro[1] * s.gyro[1] + s.gyro[2] * s.gyro[2]) * kRadToDeg);
+                }
+                if (t >= s_diagNext) {
+                    s_diagNext = t + 1.0;
+                    log("[gyro] samples %d/%d, raw %.2f %.2f %.2f deg/s (peak %.1f), accel %.2f %.2f %.2f, %s\n", s_diagOk, s_diagAll,
+                        s.gyro[0] * kRadToDeg, s.gyro[1] * kRadToDeg, s.gyro[2] * kRadToDeg, s_diagMax, s.accel[0], s.accel[1],
+                        s.accel[2], s_calibrating ? "calibrating" : s_calibratedOnce ? "calibrated" : "not calibrated");
+                    s_diagOk = s_diagAll = 0;
+                    s_diagMax = 0;
+                }
+            }
         }
         if (s_pad && !testing) {
             s_status = s_calibrating ? "Calibrating: keep the controller still"
