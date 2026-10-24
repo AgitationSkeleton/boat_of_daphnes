@@ -131,14 +131,15 @@ jobs:
         run: |
           set -euo pipefail
           tar=$(ls dist/*.tar.gz)
-          tar -tzf "$tar" | head -50
+          tar -tzf "$tar" > tarball.txt
+          head -50 tarball.txt  # (not tar | head: under pipefail, head closing the pipe fails tar)
           # nothing made from a disc, nothing of the player's
           # (wwrando's own patch files in rando/wwrando/asm are .rel files too: they are its sources, not the game's)
-          if tar -tzf "$tar" | grep -v '/rando/\(wwrando\|gclib\|site-packages\|python\)/' | grep -E '(^|/)(game|Save|saves|logs|Randomizer)/|tww_game|\.(iso|gcm|ciso|rvz|wia|rel|dol)$'; then
+          if grep -v '/rando/\(wwrando\|gclib\|site-packages\|python\)/' tarball.txt | grep -E '(^|/)(game|Save|saves|logs|Randomizer)/|tww_game|\.(iso|gcm|ciso|rvz|wia|rel|dol)$'; then
             echo "game data in the release"; exit 1
           fi
           mkdir -p check && tar -xzf "$tar" -C check
-          check/boat-of-daphnes-*/tools/llvm/clang --version | head -1
+          check/boat-of-daphnes-*/tools/llvm/clang --version > clang.txt && head -1 clang.txt
           check/boat-of-daphnes-*/rando/python/bin/python3 --version
 
       - name: Upload the release
