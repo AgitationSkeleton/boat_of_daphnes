@@ -1,0 +1,72 @@
+description Gyro aiming per mode: a constant synthetic gyro turn (up 30 and left 40 deg/s) must turn the aim with the hookshot, grappling hook, boomerang, telescope and Picto Box, and do nothing while walking
+# BLUEWAKE_TEST_GYRO holds the turn from the first frame; the log's [gyro-test] lines (active flag, Link's facing, the camera's pitch ratio) are read between the markers.
+# The player status word at 0x803CA8D0: 0x4000 hookshot, 0x20000 rope, 0x80000 boomerang, 0x200000 telescope, 0x2000 first-person look.
+save 2-Pictobox
+env BLUEWAKE_TEST_GYRO 30,40:100000@0
+env BLUEWAKE_TEST_GYRO_MODE 0
+start load
+wait link
+give hookshot
+give grappling_hook
+give boomerang
+give telescope
+give picto_box
+wait 60
+log GYRO walk begin
+stick 0 90 20
+wait 60
+log GYRO walk end
+wait 30
+log GYRO swim_none
+equip X hookshot
+wait 20
+press X 10
+wait 90
+peek 0x803CA8D0/4 hookshot
+log GYRO hookshot begin
+wait 120
+log GYRO hookshot end
+press B 10
+wait 60
+equip X grappling_hook
+wait 20
+press X 10
+wait 90
+peek 0x803CA8D0/4 grapple
+log GYRO grapple begin
+wait 120
+log GYRO grapple end
+press B 10
+wait 60
+equip X boomerang
+wait 20
+press X 10
+wait 90
+peek 0x803CA8D0/4 boomerang
+log GYRO boomerang begin
+wait 120
+log GYRO boomerang end
+release X
+press B 10
+wait 60
+equip X telescope
+wait 20
+press X 10
+wait 90
+peek 0x803CA8D0/4 telescope
+log GYRO telescope begin
+wait 120
+log GYRO telescope end
+press B 10
+wait 60
+equip X picto_box
+wait 20
+press X 10
+wait 90
+peek 0x803CA8D0/4 picto
+log GYRO picto begin
+wait 120
+shot picto
+log GYRO picto end
+press B 10
+wait 60
