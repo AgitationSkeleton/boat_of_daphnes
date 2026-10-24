@@ -1,0 +1,20 @@
+description BR-0053: a Hyoi Pear (Y) puts the player in a seagull; R must end it and return control to Link
+# The seagull descends in a cutscene first (R does nothing then, as in the game); once the player flies it (HUD: "Return R"), R
+# must end it. The pear's seagull view is not an event (mode 0), so the pictures are the check for it (in_gull: "Return R" in the
+# corner; after_R: Link in view with his buttons back); after R the return plays as an event that must end (wait noevent).
+save 2-Pictobox
+start load
+wait link
+give hyoi_pear
+equip Y hyoi_pear
+wait 30
+press Y 10
+wait 400
+shot in_gull
+press R 10
+wait 60
+wait noevent
+wait 60
+peek 0x803C9EA2/1 evt_after_R
+shot after_R
+expect_peek evt_after_R == 0
