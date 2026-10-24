@@ -117,6 +117,14 @@ Write-Host ("{0}: {1:N0} MB in {2} files" -f $out, $size, (Get-ChildItem -Recurs
 if (-not $NoZip) {
     $zip = "dist\$name.zip"
     if (Test-Path $zip) { Remove-Item -Force $zip }
-    Compress-Archive -Path "$out\*" -DestinationPath $zip -CompressionLevel Optimal
+    # Windows PowerShell 5's Compress-Archive writes its entries with backslashes, which other unzippers (and Linux) take
+    # as part of the file name: Windows' own tar (bsdtar, in System32 since Windows 10) writes a standard zip instead.
+    $tar = Join-Path $env:SystemRoot "System32\tar.exe"
+    if (Test-Path $tar) {
+        & $tar -a -c -f $zip -C $out *
+        if ($LASTEXITCODE) { throw "tar failed ($LASTEXITCODE)" }
+    } else {
+        Compress-Archive -Path "$out\*" -DestinationPath $zip -CompressionLevel Optimal
+    }
     Write-Host ("{0}: {1:N0} MB" -f $zip, ((Get-Item $zip).Length / 1MB))
 }
