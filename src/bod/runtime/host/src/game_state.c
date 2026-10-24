@@ -333,19 +333,10 @@ static void fix_ship_return(CPUState* cpu) {
         if (fit != NULL) {
             set_ikada_notes(cpu, fit);
             fprintf(stderr, "[teleport] sea room %d point -2 (layer %d): the ship there (id %d) noted\n", room, layer, fit->id);
-        } else if (in_room != NULL) {
-            // none of its ships is there in this layer: load the room in the layer of one that is
-            const IkadaShip* use = noted != NULL ? noted : in_room;
-            int want = 0;
-            while (want < 11 && !ship_in_layer(use, want))
-                ++want;
-            set_ikada_notes(cpu, use);
-            mem_write8(cpu, NEXT_STAGE + 0xBu, (u8)want);
-            fprintf(stderr, "[teleport] sea room %d point -2: no ship in layer %d, loading layer %d for the ship (id %d)\n", room, layer,
-                    want, use->id);
         } else {
-            mem_write16(cpu, NEXT_STAGE + 0x8u, 0u); // no ship in that room: its first start point instead of no player
-            fprintf(stderr, "[teleport] sea room %d has no ship: point 0 instead of -2\n", room);
+            // no ship of the room is there in this layer: keep the world as the time of day has it, and put Link at the start point
+            mem_write16(cpu, NEXT_STAGE + 0x8u, 0u);
+            fprintf(stderr, "[teleport] sea room %d: no ship in layer %d, point 0 instead of -2\n", room, layer);
         }
     }
 }
