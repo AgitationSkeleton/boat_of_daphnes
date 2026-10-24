@@ -72,6 +72,7 @@
 #include "gxruntime/aurora_backend.h"
 #include "save_state.h"
 
+extern "C" bool bluewake_test_script_menu(char* spec, unsigned size);  // bod_testscript.cpp
 extern "C" {
 // Host functions declared here with plain types: their headers bring in the
 // guest CPU's, which this file has no use for.
@@ -1861,10 +1862,18 @@ void frame(void*) {
     {
         // Testing: BLUEWAKE_TEST_MENU="Settings/Browse Models" opens the menu on that page once the game shows its first
         // frames (BLUEWAKE_TEST_MENU_STYLE=0/1: the Wind Waker or the Classic theme), for captures (the scenarios cannot click).
+        // A scenario's `menu HEADER/PAGE` (and `menu close`) does the same at its own moment (bod_testscript.cpp).
         static const char* const test_menu = std::getenv("BLUEWAKE_TEST_MENU");
         static int test_frames;
-        if (test_menu != nullptr && ++test_frames == 240) {
-            const std::string spec = test_menu;
+        char requested[160];
+        std::string spec;
+        if (test_menu != nullptr && ++test_frames == 240)
+            spec = test_menu;
+        else if (bluewake_test_script_menu(requested, sizeof requested))
+            spec = requested;
+        if (spec == "close") {
+            set_menu_open(false);
+        } else if (!spec.empty()) {
             const size_t slash = spec.find('/');
             const std::string header = spec.substr(0, slash);
             CVarSetString(CVAR_SETTING("Menu.ActiveHeader"), header.c_str());

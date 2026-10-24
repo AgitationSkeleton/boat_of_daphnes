@@ -154,7 +154,7 @@ struct Slot {
 const Slot kSlots[21] = {
     {"Telescope", {0x20}}, {"Sail", {0x78}}, {"Wind Waker", {0x22}}, {"Grappling Hook", {0x25}},
     {"Spoils Bag", {0x24}}, {"Boomerang", {0x2D}}, {"Deku Leaf", {0x34}}, {"Tingle Tuner", {0x21}},
-    {"Picto Box", {0x23, 0x26}}, {"Iron Boots", {0x29}}, {"Magic Armor", {0x2A}}, {"Bait Bag", {0x2C}},
+    {"Picto Box", {0x23, 0x26}}, {"Iron Boots", {0x29}}, {"Magic Armor", {0x2A}}, {"Bait Bag", {0x2C, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88}},
     {"Bow", {0x27, 0x35, 0x36}}, {"Bombs", {0x31}}, {"Bottle 1", {0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x59, 0x5A, 0x5B}}, {"Bottle 2", {0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x59, 0x5A, 0x5B}},
     {"Bottle 3", {0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x59, 0x5A, 0x5B}}, {"Bottle 4", {0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x59, 0x5A, 0x5B}}, {"Delivery Bag", {0x30}}, {"Hookshot", {0x2F}},
     {"Skull Hammer", {0x33}},
@@ -644,6 +644,8 @@ std::string help_text() {
            "  teleport <stage> <room> <x> <y> <z> [angle]   Link to a place in a stage\n"
            "  flag <get|set|clear> <event|tmp> <id>   an event flag (id as 0x0A04: byte, then bit mask)\n"
            "  give <item> [count]               an item in its slot (name or number; count for bombs and arrows)\n"
+           "  equip <X|Y|Z> <item|none>         an item on a button (give it first)\n"
+           "  collect <songs|pearls|shards|swords>   every song, pearl, triforce shard or sword and shield\n"
            "  set <health|maxhealth|rupees|magic|maxmagic> <n>   (health in quarter hearts)\n"
            "  items [filter]                    the item names\n"
            "  actors [filter]                   the live actors\n"
@@ -782,6 +784,35 @@ std::string RunCommand(const std::string& line) {
         std::snprintf(out, sizeof out, "gave %s in slot %d", item_label(item).c_str(), slot);
         std::fprintf(stderr, "[console] %s\n", out);
         return out;
+    }
+    if (cmd == "equip") {
+        // equip X|Y|Z ITEM: the button's slot in the save and the play scene's copy of the item number (what the HUD shows)
+        const std::string button = w.size() > 1 ? lower(w[1]) : "";
+        const unsigned which = button == "x" ? 0u : button == "y" ? 1u : button == "z" ? 2u : 3u;
+        if (w.size() < 3 || which > 2)
+            return "usage: equip <X|Y|Z> <item|none>";
+        const bool none = lower(w[2]) == "none";
+        const int item = none ? 0xFF : find_item(w[2]);
+        const int slot = none ? 0xFF : slot_of(item);
+        if (item < 0 || slot < 0)
+            return "no such item with an inventory slot (items lists the names)";
+        bluewake_dev_write(kInfo + 0x09 + which, static_cast<unsigned>(slot), 1);
+        bluewake_dev_write(kInfo + 0x12A0 + 0x4933 + which, static_cast<unsigned>(item), 1);
+        std::snprintf(out, sizeof out, "%s on %s (slot %d)", none ? "nothing" : item_label(item).c_str(), w[1].c_str(), slot);
+        std::fprintf(stderr, "[console] equip %s\n", out);
+        return out;
+    }
+    if (cmd == "collect") {
+        const std::string what = w.size() > 1 ? lower(w[1]) : "";
+        if (what == "songs") bluewake_dev_write(kInfo + 0xB4 + 9, 0x3F, 1);
+        else if (what == "pearls") bluewake_dev_write(kInfo + 0xB4 + 0xB, 0x07, 1);
+        else if (what == "shards") bluewake_dev_write(kInfo + 0xB4 + 0xA, 0xFF, 1);
+        else if (what == "swords") {
+            bluewake_dev_write(kInfo + 0xB4 + 0, 0x0F, 1);
+            bluewake_dev_write(kInfo + 0xB4 + 1, 0x03, 1);
+        } else return "usage: collect <songs|pearls|shards|swords>";
+        std::fprintf(stderr, "[console] collected %s\n", what.c_str());
+        return "collected " + what;
     }
     if (cmd == "set") {
         long n;

@@ -1,0 +1,8 @@
+description Smoke test: the Picto Box save loads through the file select and Link is playable
+save 2-Pictobox
+start load
+wait link
+log loaded
+peek 0x803C9D3C/4 stage
+shot loaded
+expect \[script\] loaded

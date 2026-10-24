@@ -1,0 +1,23 @@
+description Smoke test of the edits: give, equip, rupees, time, a warp to Windfall and a warp to the room Link is already in
+save 2-Pictobox
+start load
+wait link
+rupees 555
+give bow
+give bombs 20
+equip X bow
+equip Z bombs
+time 90 hold
+wait 30
+shot outset
+warp sea 11 0
+log at_windfall
+peek 0x803C4C0C/2 rupees
+peek 0x803C4C44/1 slot_bow
+shot windfall
+warp sea 11 0
+log same_room_done
+shot windfall2
+expect \[script\] at_windfall
+expect \[script\] same_room_done
+expect_not TIMEOUT

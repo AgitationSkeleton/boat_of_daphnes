@@ -233,6 +233,17 @@ void pollPads() {
     if (scripted & PAD_BUTTON_DOWN) st[0].stickY = -100;
     if (scripted & PAD_BUTTON_LEFT) st[0].stickX = -100;
     if (scripted & PAD_BUTTON_RIGHT) st[0].stickX = 100;
+    {   // BLUEWAKE_TEST_SCRIPT's input (bod_testscript.cpp): its presses and sticks, over the pad
+        uint16_t b = 0;
+        int8_t sx = 0, sy = 0, cx = 0, cy = 0;
+        if (bod::testScriptPad(&b, &sx, &sy, &cx, &cy)) {
+            st[0].button |= b;
+            if (sx || sy) st[0].stickX = sx, st[0].stickY = sy;
+            if (cx || cy) st[0].substickX = cx, st[0].substickY = cy;
+            if (b & PAD_TRIGGER_R) st[0].triggerRight = 255;
+            if (b & PAD_TRIGGER_L) st[0].triggerLeft = 255;
+        }
+    }
     // Gyro aiming (src/runtime/gyro.cpp): the controller's turning, for the game's aiming modes (applied on the game thread).
     if (!(s_padUnfocusedBlock || bod::menuOpen())) gyroPoll(st[0], s_frameNo);
     else gyroPoll(st[0], ~0ull);  // (no input while the menu or another window has it)
@@ -886,6 +897,7 @@ int runFrontend(int argc, char** argv, bool headless, u64 maxFrames, void (*star
                 }
             }
         }
+        if (char shotPath[512]; newFrame && bod::testScriptShot(shotPath, sizeof shotPath)) dumpEfb(shotPath);  // (a scenario's `shot`)
         if (!headless) bod::hostOverlay();  // Boat of Daphnes' menu and windows, over the picture
         const double c3 = gxNow();
         s_tOverlay += c3 - c2;
