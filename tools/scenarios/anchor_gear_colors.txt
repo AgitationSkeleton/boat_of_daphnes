@@ -1,0 +1,62 @@
+description Gear colours over Anchor: a colour changed in the Cosmetics Editor reaches the room at once, and a mate's change is applied live
+# Needs a local Anchor server on 127.0.0.1:8813 (server/anchor: npx wrangler dev --local --port 8813) and, in room "colt",
+#   node test/color_watch.mjs ws://127.0.0.1:8813 colt 200            (logs what the game shares)
+#   MATE_GEAR=1 MATE_COLORS=... MATE_COLORS2=... node test/pose_replay.mjs ws://127.0.0.1:8813 colt 8 200   (the mate)
+windowed
+timeout 400
+save 2-Pictobox
+cvar gNetwork.Anchor.Enabled 1
+cvar gNetwork.Anchor.Host 127.0.0.1:8813
+cvar gNetwork.Anchor.Room colt
+cvar gNetwork.Anchor.Name Tester
+cvar gNetwork.Anchor.Team blue
+start load
+wait link
+log GAME READY
+wait 900
+shot mate1
+wait 300
+log LOCAL CHANGE 1
+console cosmetic equip:Equip.HeroSword.Blade=ffff00;Equip.Ship.Hull=ff8000
+wait 240
+shot mate2
+log LOCAL CHANGE 2
+console cosmetic equip:Equip.HeroSword.Blade=ff00ff;Equip.HeroShield.Face=00ffff
+wait 240
+shot mate3
+wait 600
+shot mate4
+wait 600
+shot mate5
+wait 600
+shot mate6
+wait 120
+log DRAG
+console cosmetic equip:Equip.HeroSword.Hilt=200000
+wait 6
+console cosmetic equip:Equip.HeroSword.Hilt=300000
+wait 6
+console cosmetic equip:Equip.HeroSword.Hilt=400000
+wait 6
+console cosmetic equip:Equip.HeroSword.Hilt=500000
+wait 6
+console cosmetic equip:Equip.HeroSword.Hilt=600000
+wait 6
+console cosmetic equip:Equip.HeroSword.Hilt=700000
+wait 6
+console cosmetic equip:Equip.HeroSword.Hilt=800000
+wait 6
+console cosmetic equip:Equip.HeroSword.Hilt=900000
+wait 6
+console cosmetic equip:Equip.HeroSword.Hilt=a00000
+wait 6
+console cosmetic equip:Equip.HeroSword.Hilt=b00000
+wait 6
+console cosmetic equip:Equip.HeroSword.Hilt=c00000
+wait 6
+console cosmetic equip:Equip.HeroSword.Hilt=d00000
+wait 6
+console cosmetic equip:Equip.HeroSword.Hilt=0000ff
+wait 200
+shot mate7
+wait 120
