@@ -4,6 +4,7 @@
 #include "setup/firstrun.h"
 #include "setup/setup_ui.h"
 
+#include "runtime/appicon.h"
 #include <SDL3/SDL.h>
 #include <imgui.h>
 #include <backends/imgui_impl_sdl3.h>
@@ -66,8 +67,16 @@ SDL_Window* makeWindow(int w, int h) {
         SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, y);
     }
     if (quiet && quiet[0] == '1') SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_FOCUSABLE_BOOLEAN, false);
+    SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON, "1");  // the program's icon (src/runtime/boat-of-daphnes.rc)
+    SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON_SMALL, "1");
     SDL_Window* win = SDL_CreateWindowWithProperties(props);
     SDL_DestroyProperties(props);
+#if !defined(_WIN32)
+    if (SDL_Surface* icon = win ? appicon::load() : nullptr) {
+        SDL_SetWindowIcon(win, icon);
+        SDL_DestroySurface(icon);
+    }
+#endif
     return win;
 }
 

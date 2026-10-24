@@ -1,6 +1,5 @@
-// The programs' window icon on Linux: the PNG embedded at build time (tools/launcher/embedicon.cmake:
-// build/icon/sa2b_icon.png when mkicon.py --disc has made it, else res/sa2b_icon.png). Windows takes
-// the icon from the program's resources (res/sa2b.rc) instead. Include from one file per program.
+// The window icon on Linux: assets/icon/boat-of-daphnes.png, embedded at build time (CMake's app_icon.inc). Windows takes
+// the icon from the program's resources (boat-of-daphnes.rc) instead. Each including file gets its own copy of the PNG.
 #pragma once
 #if !defined(_WIN32)
 
