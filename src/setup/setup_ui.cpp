@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
+#include <vector>
 #include <mutex>
 #include <string>
 
@@ -21,7 +23,8 @@ namespace fs = std::filesystem;
 
 namespace {
 const char* kTitle = "Boat of Daphnes";
-const SDL_DialogFileFilter kFilters[] = {{"GameCube disc image", "iso;gcm;ciso;rvz;wia"}, {"All files", "*"}};
+// (.nkit.iso is an .iso; the upper-case names are for portals that match case)
+const SDL_DialogFileFilter kFilters[] = {{"GameCube disc image", "iso;gcm;rvz;wia;ciso;gcz;ISO;GCM;RVZ;WIA;CISO;GCZ"}, {"All files", "*"}};
 
 std::mutex s_pickLock;
 std::string s_picked;      // the file the picker came back with
@@ -35,6 +38,7 @@ void SDLCALL onPicked(void*, const char* const* files, int) {
 
 // The system's file picker, waited for: "" when the player closed it.
 fs::path pickDisc(SDL_Window* parent) {
+    if (std::getenv("BLUEWAKE_NO_DIALOG")) return {};  // (scripted runs: no picker to wait on)
     s_picking = true;
     SDL_ShowOpenFileDialog(onPicked, nullptr, parent, kFilters, 2, nullptr, false);
     while (s_picking) {
@@ -46,21 +50,119 @@ fs::path pickDisc(SDL_Window* parent) {
     return s_picked.empty() ? fs::path() : fs::u8path(s_picked);
 }
 
-// A message box with buttons; the chosen one's index (-1 closed).
-int ask(SDL_Window* parent, SDL_MessageBoxFlags kind, const std::string& text, std::initializer_list<const char*> buttons) {
-    SDL_MessageBoxButtonData data[4] = {};
-    int n = 0;
-    for (const char* b : buttons) {
-        data[n].buttonID = n;
-        data[n].text = b;
-        if (n == 0) data[n].flags = SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT;
-        if (n == int(buttons.size()) - 1) data[n].flags |= SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT;
-        ++n;
+// A window where scripted runs want it (BLUEWAKE_WINDOW_POS=x,y), not taking the focus (BLUEWAKE_WINDOW_NOACTIVATE=1).
+SDL_Window* makeWindow(int w, int h) {
+    int x = 0, y = 0;
+    const char* pos = std::getenv("BLUEWAKE_WINDOW_POS");
+    const bool placed = pos && std::sscanf(pos, "%d,%d", &x, &y) == 2;
+    const char* quiet = std::getenv("BLUEWAKE_WINDOW_NOACTIVATE");
+    if (quiet && quiet[0] == '1') SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
+    SDL_PropertiesID props = SDL_CreateProperties();
+    SDL_SetStringProperty(props, SDL_PROP_WINDOW_CREATE_TITLE_STRING, kTitle);
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, w);
+    SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, h);
+    if (placed) {
+        SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER, x);
+        SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, y);
     }
-    const SDL_MessageBoxData box{kind | SDL_MESSAGEBOX_BUTTONS_LEFT_TO_RIGHT, parent, kTitle, text.c_str(), n, data, nullptr};
-    int hit = -1;
-    if (!SDL_ShowMessageBox(&box, &hit)) return -1;
-    return hit;
+    if (quiet && quiet[0] == '1') SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_FOCUSABLE_BOOLEAN, false);
+    SDL_Window* win = SDL_CreateWindowWithProperties(props);
+    SDL_DestroyProperties(props);
+    return win;
+}
+
+fs::path s_exeDir;  // (for the font, set by runFirstRun)
+ImFont* loadFont(const fs::path& exeDir, float size);
+
+// A message with buttons, in a small window of its own (SDL's message box clips long button texts on Windows): each button
+// is as wide as its text. The chosen button's index (-1: closed, which counts as the last one).
+int ask(SDL_Window* parent, SDL_MessageBoxFlags kind, const std::string& text, std::initializer_list<const char*> buttons) {
+    if (std::getenv("BLUEWAKE_NO_DIALOG")) {  // scripted runs: the log has it, nothing waits for a click
+        std::fprintf(stderr, "[setup] %s\n", text.c_str());
+        return int(buttons.size()) - 1;
+    }
+    float scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
+    if (scale <= 0) scale = 1;
+    const int width = int(560 * scale);
+    SDL_Window* win = makeWindow(width, int(180 * scale));
+    SDL_Renderer* ren = win ? SDL_CreateRenderer(win, nullptr) : nullptr;
+    if (!ren) {
+        if (win) SDL_DestroyWindow(win);
+        return -1;
+    }
+    if (parent) SDL_SetWindowParent(win, parent), SDL_SetWindowModal(win, true);
+    SDL_SetRenderVSync(ren, 1);
+    ImGuiContext* before = ImGui::GetCurrentContext();
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGui::SetCurrentContext(ctx);
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    ImGui::StyleColorsLight();
+    ImGui::GetStyle().ScaleAllSizes(scale);
+    loadFont(s_exeDir, 17.f * scale);
+    ImGui_ImplSDL3_InitForSDLRenderer(win, ren);
+    ImGui_ImplSDLRenderer3_Init(ren);
+
+    const std::vector<const char*> labels(buttons);
+    int hit = -2;
+    int wantHeight = 0;
+    while (hit == -2) {
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_EVENT_QUIT || (ev.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && ev.window.windowID == SDL_GetWindowID(win))) hit = -1;
+            if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.windowID == SDL_GetWindowID(win)) {
+                if (ev.key.key == SDLK_ESCAPE) hit = int(labels.size()) - 1;
+                if (ev.key.key == SDLK_RETURN || ev.key.key == SDLK_KP_ENTER) hit = 0;
+            }
+            ImGui_ImplSDL3_ProcessEvent(&ev);
+        }
+        ImGui_ImplSDLRenderer3_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::Begin("##ask", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextUnformatted(text.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        ImGui::Spacing();
+        const ImGuiStyle& st = ImGui::GetStyle();
+        float total = st.ItemSpacing.x * float(labels.size() - 1);
+        for (const char* l : labels) total += ImGui::CalcTextSize(l).x + st.FramePadding.x * 2 + 16 * scale;
+        ImGui::SetCursorPosX(std::max(st.WindowPadding.x, ImGui::GetWindowWidth() - st.WindowPadding.x - total));
+        for (size_t i = 0; i < labels.size(); i++) {
+            if (i) ImGui::SameLine();
+            if (ImGui::Button(labels[i], ImVec2(ImGui::CalcTextSize(labels[i]).x + st.FramePadding.x * 2 + 16 * scale, 0))) hit = int(i);
+        }
+        wantHeight = int(ImGui::GetCursorPosY() + st.WindowPadding.y);
+        ImGui::End();
+        ImGui::Render();
+        SDL_SetRenderDrawColor(ren, 240, 240, 240, 255);
+        SDL_RenderClear(ren);
+        ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), ren);
+        static int s_frames = 0;  // (a test: save the dialog's picture, once its window has its size)
+        if (const char* shot = std::getenv("BOD_TEST_SETUP_SHOT"); shot && ++s_frames == 12) {
+            if (SDL_Surface* img = SDL_RenderReadPixels(ren, nullptr)) SDL_SaveBMP(img, shot), SDL_DestroySurface(img), hit = -1;
+        }
+        SDL_RenderPresent(ren);
+        int w = 0, h = 0;
+        SDL_GetWindowSize(win, &w, &h);
+        if (hit == -2 && std::abs(h - wantHeight) > 2 && wantHeight > 0) SDL_SetWindowSize(win, w, wantHeight);
+    }
+    (void)kind;
+    ImGui_ImplSDLRenderer3_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
+    ImGui::DestroyContext(ctx);
+    ImGui::SetCurrentContext(before);
+    SDL_DestroyRenderer(ren);
+    SDL_DestroyWindow(win);
+    return hit < 0 ? int(labels.size()) - 1 : hit;
+}
+
+int failureBox(SDL_Window* parent, const std::string& error) {
+    return ask(parent, SDL_MESSAGEBOX_ERROR, "The game could not be built from your disc:\n\n" + error +
+               "\n\nThe details are in setup.log, beside the program.", {"Try again", "Choose another disc", "Quit"});
 }
 
 std::string clock(float s) {
@@ -83,6 +185,7 @@ ImFont* loadFont(const fs::path& exeDir, float size) {
 }  // namespace
 
 bool runFirstRun(const fs::path& exeDir, fs::path& disc, bool rememberedDisc) {
+    s_exeDir = exeDir;
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) return false;
 
     // The disc: the remembered one, else asked for until a right one is picked (or the player gives up).
@@ -104,6 +207,11 @@ bool runFirstRun(const fs::path& exeDir, fs::path& disc, bool rememberedDisc) {
             return false;
         }
     }
+    if (std::getenv("BOD_TEST_SETUP_ERROR")) {  // (a test: the failure dialog at once)
+        failureBox(nullptr, "The randomizer couldn't make its game from your disc. The details are in setup.log.");
+        SDL_Quit();
+        return false;
+    }
     if (!FirstRun::needed(exeDir, disc)) {
         SDL_Quit();
         return true;
@@ -112,7 +220,7 @@ bool runFirstRun(const fs::path& exeDir, fs::path& disc, bool rememberedDisc) {
     // The build, in a small window.
     float scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
     if (scale <= 0) scale = 1;
-    SDL_Window* win = SDL_CreateWindow(kTitle, int(520 * scale), int(170 * scale), 0);
+    SDL_Window* win = makeWindow(int(520 * scale), int(170 * scale));
     SDL_Renderer* ren = win ? SDL_CreateRenderer(win, nullptr) : nullptr;
     if (!ren) {
         SDL_Quit();
@@ -148,8 +256,7 @@ bool runFirstRun(const fs::path& exeDir, fs::path& disc, bool rememberedDisc) {
                 quit = true;
                 break;
             }
-            const int hit = ask(win, SDL_MESSAGEBOX_ERROR, "The game could not be built from your disc:\n\n" + st.error +
-                                "\n\nThe details are in setup.log, beside the program.", {"Try again", "Choose another disc", "Quit"});
+            const int hit = failureBox(win, st.error);
             if (hit == 1) {
                 const fs::path other = pickDisc(win);
                 std::string why;

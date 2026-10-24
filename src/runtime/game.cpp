@@ -1,5 +1,5 @@
 // The game module: tww_game.dll (tww_game.so on Linux), the game's code translated by the
-// recompiler from the player's own disc - built by the launcher on first run (it is never shipped) or, for development, by the
+// recompiler from the player's own disc - built by the program's first-run setup (it is never shipped) or, for development, by the
 // CMake target sa2b_game. Loaded first thing; its tables and the state its code owns are reached
 // through g_game and the pointers below (src/runtime/ctx.h, modules.h).
 #include "runtime/modswitch.h"
@@ -17,6 +17,7 @@
 #endif
 
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 namespace rt {
@@ -40,9 +41,9 @@ bool loadGameModule(bool quiet, bool rando) {
     auto fail = [&] {
         std::fprintf(stderr, "%s\n", error.c_str());
 #if defined(_WIN32)
-        if (!quiet) MessageBoxA(nullptr, error.c_str(), "Boat of Daphnes", MB_OK | MB_ICONINFORMATION);
+        if (!quiet && !std::getenv("BLUEWAKE_NO_DIALOG")) MessageBoxA(nullptr, error.c_str(), "Boat of Daphnes", MB_OK | MB_ICONINFORMATION);
 #else
-        if (!quiet) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Boat of Daphnes", error.c_str(), nullptr);
+        if (!quiet && !std::getenv("BLUEWAKE_NO_DIALOG")) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Boat of Daphnes", error.c_str(), nullptr);
 #endif
         return false;
     };
@@ -55,8 +56,7 @@ bool loadGameModule(bool quiet, bool rando) {
     path = path.substr(0, path.find_last_of(L"\\/") + 1) + (rando ? L"tww_game_rando.dll" : L"tww_game.dll");
     HMODULE m = LoadLibraryW(path.c_str());
     if (!m) {
-        error = "The game has not been set up on this computer yet. Start TWWLauncher.exe: on its first run it builds the game "
-                "from your disc.";
+        error = "The game has not been set up on this computer yet. Start Boat of Daphnes again (without --headless, which skips the setup) to set it up from your disc.";
         return fail();
     }
     get = reinterpret_cast<Fn>(reinterpret_cast<void*>(GetProcAddress(m, "sa2b_game_module")));
@@ -68,14 +68,13 @@ bool loadGameModule(bool quiet, bool rando) {
     // (local: its own names - memcpy and the rest - stay its own; the runtime's are bound from the
     // program's exported symbols)
     if (access(path.c_str(), F_OK) != 0) {
-        error = "The game has not been set up on this computer yet. Start Boat of Daphnes: on its first run it builds the game "
-                "from your disc.";
+        error = "The game has not been set up on this computer yet. Start Boat of Daphnes again (without --headless, which skips the setup) to set it up from your disc.";
         return fail();
     }
     void* m = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (!m) {  // (a function it needs that this runtime lacks, say)
         std::fprintf(stderr, "%s\n", dlerror());
-        error = "The game was set up by another version of this program. Start Boat of Daphnes to set it up again.";
+        error = "The game was set up by another version of this program. Start Boat of Daphnes again to set it up anew (if this message stays, delete tww_game.txt beside the program first).";
         return fail();
     }
     get = reinterpret_cast<Fn>(dlsym(m, "sa2b_game_module"));
@@ -83,9 +82,9 @@ bool loadGameModule(bool quiet, bool rando) {
     const GameModule* g = get ? get() : nullptr;
     if (!g || g->abi != kGameAbi) {
 #if defined(_WIN32)
-        error = "The game was set up by another version of this program. Start TWWLauncher.exe to set it up again.";
+        error = "The game was set up by another version of this program. Start Boat of Daphnes again to set it up anew (if this message stays, delete tww_game.txt beside the program first).";
 #else
-        error = "The game was set up by another version of this program. Start Boat of Daphnes to set it up again.";
+        error = "The game was set up by another version of this program. Start Boat of Daphnes again to set it up anew (if this message stays, delete tww_game.txt beside the program first).";
 #endif
         return fail();
     }

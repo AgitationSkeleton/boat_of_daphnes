@@ -51,10 +51,14 @@ set(AURORA_ENABLE_DVD OFF CACHE BOOL "" FORCE)
 set(AURORA_ENABLE_CARD OFF CACHE BOOL "" FORCE)
 add_subdirectory(extern/aurora EXCLUDE_FROM_ALL)
 
-# Disc images: .iso/.gcm, .ciso, .rvz, .wia (src/disc; RVZ/WIA need Aurora's zstd).
+# Disc images: .iso/.gcm (also NKit), .ciso, .gcz, .rvz, .wia (src/disc; RVZ/WIA need Aurora's zstd, GCZ its zlib).
 add_library(tww_disc STATIC src/disc/discimage.cpp)
 target_include_directories(tww_disc PUBLIC src)
 target_link_libraries(tww_disc PRIVATE zstd::libzstd)
+# A test tool: what a disc image of any kind holds, as text (tools/test_disc_formats.py compares formats with it).
+add_executable(tww_disc_check tools/disc_check.cpp)
+target_link_libraries(tww_disc_check PRIVATE tww_disc)
+set_target_properties(tww_disc_check PROPERTIES EXCLUDE_FROM_ALL ON)
 
 # ---- Boat of Daphnes' menus and windows (src/bod: its windows/src and host headers, GPL-3.0-or-later,
 # by AgitationSkeleton), built as it builds them; its host API is provided by src/runtime/bod_*.cpp. ---
@@ -85,6 +89,12 @@ if (TARGET ZLIB::ZLIB)
     target_link_libraries(mgba ZLIB::ZLIB)
 elseif (TARGET zlib)
     target_link_libraries(mgba zlib)
+endif ()
+# (the GCZ reader's zlib)
+if (TARGET ZLIB::ZLIB)
+    target_link_libraries(tww_disc PRIVATE ZLIB::ZLIB)
+elseif (TARGET zlib)
+    target_link_libraries(tww_disc PRIVATE zlib)
 endif ()
 # mGBA links libm by name unless the compiler is MSVC; this clang is not (the C runtime has the math functions).
 get_target_property(_mgba_libs mgba LINK_LIBRARIES)
