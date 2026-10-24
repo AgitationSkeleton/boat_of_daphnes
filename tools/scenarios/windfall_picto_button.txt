@@ -1,6 +1,6 @@
 description The Picto Box's own shutter (A in the viewfinder): the game's screen capture of the photo must not stop on an assertion
-# KNOWN FAILING (docs/scenarios.md): the regular Picto Box takes its picture as an I8 copy of the screen, which this runtime
-# does not write into guest memory, so encode_s3tc's `16 <= i8low` assertion (m_Do_graphic.cpp) stops the game.
+# The regular Picto Box takes its picture as an I8 copy of the screen; the runtime reads it back into guest memory
+# (gx.cpp, gxCopyReadbackArm) so encode_s3tc's `16 <= i8low` assertion (m_Do_graphic.cpp) holds.
 timeout 150
 save 2-Pictobox
 start load

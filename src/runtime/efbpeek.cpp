@@ -265,6 +265,16 @@ HLE(Judge__12dSnap_packetFv) {
     logJudged(self);
 }
 
+// mDoGph_screenCapture: the photo (Picto Box) and the other screen captures copy the EFB to RAM (GXCopyTex), and the game
+// reads the picture back (encode_s3tc compresses it, asserting its I8 values are 16..235). The copies made inside are read
+// back from the GPU into guest memory, and the draw-sync callback waits for them (gx.cpp, gxCopyReadbackArm).
+HLE(mDoGph_screenCapture__Fv) {
+    static const GuestFn s_orig = originalOf("mDoGph_screenCapture__Fv");
+    gxCopyReadbackArm(!s_off);
+    s_orig(c);
+    gxCopyReadbackArm(false);
+}
+
 // SA2_SNAP=<frame>[,<frame>...] (testing): the shutter is released at those game frames, as the Picto Box does.
 HLE(dSnap_Execute__Fv) {
     static const GuestFn s_orig = originalOf("dSnap_Execute__Fv");

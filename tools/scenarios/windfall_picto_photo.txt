@@ -1,6 +1,6 @@
 description Windfall with the Picto Box: take a photo of two townsfolk; the EFB read-back must find them in the picture
 # `snap` releases the shutter directly (what A does), judging the photo through the EFB peeks (src/runtime/efbpeek.cpp).
-# The townsfolk wander a little, so the photo is tried twice. (A real A press ends in an assertion, see windfall_picto_button.)
+# The townsfolk wander a little, so the photo is tried twice.
 save 2-Pictobox
 env SA2_EFB_LOG 1
 start load

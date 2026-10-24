@@ -18,6 +18,8 @@
 #include "runtime/runtime.h"
 #include "runtime/sched.h"
 
+#include <dolphin/gx.h>
+
 
 #include <algorithm>
 #include <cmath>
@@ -690,6 +692,111 @@ u32 s_cp[256];
 std::bitset<256> s_cpSet;
 std::bitset<0x1058> s_xfSet;
 
+// ---- texture copies the CPU reads (gxCopyReadbackArm) ----
+// The game's screen capture (the Picto Box's photo) copies the EFB to RAM and then reads the picture. The copy
+// stays on the GPU here; for these copies Aurora's read-back (GX_AURORA_READBACK_CAPTURE_COPIES) brings the
+// bytes, laid out as GXCopyTex writes them, a few frames later. The draw-sync token that tells the game the copy
+// is done is held until the bytes are in guest memory.
+struct CopyWait {
+    u64 key;
+    u32 guest;  // physical destination
+    u32 size;
+    u8 fill;    // what the buffer gets if the picture never comes
+    u32 fmt, w, h;
+    double since;
+};
+std::mutex s_cwLock;
+std::vector<CopyWait> s_cwPending;
+std::deque<u16> s_cwHeld;  // tokens written while a copy is awaited, in order
+std::deque<u16> s_cwOut;   // tokens released, as the interrupts will deliver them
+bool s_cwArmed = false;
+u64 s_cwKey = 0, s_cwSeq = 0, s_cwStream = 0;
+constexpr double kCopyWaitSeconds = 0.6;  // (the game's own capture time-out is 1 s)
+
+// The size of a copy's data in the texture format (GXGetTexBufferSize); 0 for formats that are not read back.
+u32 copyBytes(u32 fmt, u32 w, u32 h) {
+    static const u8 tw[7] = {8, 8, 8, 4, 4, 4, 4}, th[7] = {8, 4, 4, 4, 4, 4, 4}, tb[7] = {32, 32, 32, 32, 32, 32, 64};
+    if (fmt > 6 || !w || !h) return 0;
+    return (w + tw[fmt] - 1) / tw[fmt] * ((h + th[fmt] - 1) / th[fmt]) * tb[fmt];
+}
+
+void releaseHeldTokens() {
+    std::deque<u16> held;
+    {
+        std::lock_guard lk(s_cwLock);
+        held.swap(s_cwHeld);
+        for (u16 t : held) s_cwOut.push_back(t);
+    }
+    for (size_t i = 0; i < held.size(); i++)
+        raiseInterrupt(IRQ_PE_TOKEN, [] {
+            std::lock_guard lk(s_cwLock);
+            mmioSet16(0x100E, s_cwOut.front());
+            s_cwOut.pop_front();
+            mmioSet16(0x100A, mmioGet16(0x100A) | 0x4);
+        });
+}
+
+// A token with interrupt (BP 0x48): held back while a copy the CPU reads is on its way. true: held.
+bool holdToken(u16 token) {
+    std::lock_guard lk(s_cwLock);
+    if (s_cwPending.empty()) return false;
+    s_cwHeld.push_back(token);
+    return true;
+}
+
+// SA2_EFB_IMG=<dir> (testing): the delivered picture as a PPM (I8 as grey, RGB565, RGB5A3, RGBA8).
+void dumpCopy(const CopyWait& cw, const u8* b) {
+    const char* dir = std::getenv("SA2_EFB_IMG");
+    if (!dir) return;
+    static const u8 tw[7] = {8, 8, 8, 4, 4, 4, 4}, th[7] = {8, 4, 4, 4, 4, 4, 4};
+    if (cw.fmt < 1 || cw.fmt == 2 || cw.fmt == 3) return;
+    const u32 bw = tw[cw.fmt], bh = th[cw.fmt], tx = (cw.w + bw - 1) / bw;
+    std::string path = std::string(dir) + "/capture_" + std::to_string(cw.key) + "_f" + std::to_string(cw.fmt) + ".ppm";
+    std::FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) return;
+    std::fprintf(f, "P6\n%u %u\n255\n", cw.w, cw.h);
+    for (u32 y = 0; y < cw.h; y++)
+        for (u32 x = 0; x < cw.w; x++) {
+            const u32 tile = (y / bh) * tx + x / bw, ix = x % bw, iy = y % bh;
+            u8 rgb[3] = {0, 0, 0};
+            if (cw.fmt == 1) rgb[0] = rgb[1] = rgb[2] = b[tile * 32 + iy * 8 + ix];
+            else if (cw.fmt == 4 || cw.fmt == 5) {
+                const u8* q = b + tile * 32 + (iy * 4 + ix) * 2;
+                const u32 v = q[0] << 8 | q[1];
+                if (cw.fmt == 4) rgb[0] = u8((v >> 11) * 255 / 31), rgb[1] = u8(((v >> 5) & 63) * 255 / 63), rgb[2] = u8((v & 31) * 255 / 31);
+                else if (v & 0x8000) rgb[0] = u8(((v >> 10) & 31) * 255 / 31), rgb[1] = u8(((v >> 5) & 31) * 255 / 31), rgb[2] = u8((v & 31) * 255 / 31);
+                else rgb[0] = u8(((v >> 8) & 15) * 17), rgb[1] = u8(((v >> 4) & 15) * 17), rgb[2] = u8((v & 15) * 17);
+            } else if (cw.fmt == 6) {
+                const u8* q = b + tile * 64 + (iy * 4 + ix) * 2;
+                rgb[0] = q[1], rgb[1] = q[32], rgb[2] = q[33];
+            }
+            std::fwrite(rgb, 1, 3, f);
+        }
+    std::fclose(f);
+}
+
+bool redirectedToMemory();
+
+// Records the read-back of the texture copy just written to `dest` (host key = Aurora's copy destination).
+void captureCopy(u32 destPhys, u32 fmt, u32 w, u32 h) {
+    const u32 size = copyBytes(fmt, w, h);
+    if (!size || !s_frame || redirectedToMemory()) return;
+    if (!s_cwStream) s_cwStream = AuroraReadbackCreateStream();
+    if (!s_cwStream) return;
+    CopyWait cw{++s_cwKey, destPhys, size, u8(0x80), fmt, w, h, gxNow()};
+    {
+        std::lock_guard lk(s_cwLock);
+        s_cwPending.push_back(cw);
+    }
+    aurora(0x0051);  // GX_AURORA_READBACK_CAPTURE_COPIES
+    put64(s_cwStream);
+    put64(++s_cwSeq);
+    put32(1);
+    put64(cw.key);
+    put64(hostAddr(destPhys));
+    if (std::getenv("SA2_EFB_LOG")) log("[efb] screen capture copy: format %u, %u x %u, %u bytes at %08X\n", fmt, w, h, size, 0x80000000u | destPhys);
+}
+
 void translateBp(u32 v) {
     const u32 reg = v >> 24, val = v & 0xFFFFFF;
     if (reg == 0xFE) s_bpMask = val;
@@ -722,6 +829,7 @@ void translateBp(u32 v) {
         mmioSet16(0x100E, val & 0xFFFF);
         break;
     case 0x48:  // PE token with interrupt
+        if (holdToken(u16(val))) break;  // (a screen capture's bytes are still on their way)
         mmioSet16(0x100E, val & 0xFFFF);
         raiseInterrupt(IRQ_PE_TOKEN, [] { mmioSet16(0x100A, mmioGet16(0x100A) | 0x4); });
         break;
@@ -737,6 +845,8 @@ void translateBp(u32 v) {
         break;
     }
     case 0x52: {  // EFB copy
+        u32 capFmt = 0, capW = 0, capH = 0;
+        bool capture = false;
         if ((val >> 14) & 1) s_displayCopies++;
         if (!((val >> 14) & 1)) {  // texture copy (display copies just present the EFB)
             aurora(AUR_COPY_SRC);
@@ -754,6 +864,7 @@ void translateBp(u32 v) {
             aurora(AUR_COPY_DEST);
             put64(hostAddr((s_copyDest & 0x1FFFFF) << 5));
             s_copyDests.insert((s_copyDest & 0x1FFFFF) << 5);
+            if (s_cwArmed) capture = true, capFmt = fmt, capW = ((s_copySrcWH & 0x3FF) + 1) >> (half ? 1 : 0), capH = (((s_copySrcWH >> 10) & 0x3FF) + 1) >> (half ? 1 : 0);
             // A copy of less than the screen ends a render-to-texture pass (shadow textures:
             // 128 and 256 square in stages, 480 square in Chao World); its segment keeps plain
             // mapping. Copies of the whole screen (640 wide) capture the scene for screen effects.
@@ -762,6 +873,7 @@ void translateBp(u32 v) {
         }
         put8(CMD_LOAD_BP);
         put32(v);
+        if (capture) captureCopy((s_copyDest & 0x1FFFFF) << 5, capFmt, capW, capH);
         beginSegment();
         // The display copy (GXCopyDisp) is where a frame ends: the frame goes to the renderer here,
         // in the command stream. (The Wind Waker's JFWDisplay calls VISetNextFrameBuffer from its
@@ -1398,6 +1510,43 @@ double gxNow() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - s_t0).count();
 }
 
+
+void gxCopyReadbackArm(bool on) { s_cwArmed = on; }
+
+void gxCopyReadbackPoll() {
+    bool released = false;
+    {
+        std::lock_guard lk(s_cwLock);
+        if (s_cwPending.empty()) return;
+    }
+    const double now = gxNow();
+    for (size_t i = 0;; ) {
+        CopyWait cw;
+        {
+            std::lock_guard lk(s_cwLock);
+            if (i >= s_cwPending.size()) break;
+            cw = s_cwPending[i];
+        }
+        std::vector<u8> bytes(cw.size);
+        AuroraReadbackDest d{cw.key, bytes.data(), cw.size, GX_FALSE};
+        const bool got = AuroraReadbackGet(s_cwStream, &d, 1) != GX_FALSE && d.found != GX_FALSE;
+        if (!got && now - cw.since < kCopyWaitSeconds) {
+            i++;
+            continue;
+        }
+        if (!got) {  // no picture (the frame was dropped, or this GPU cannot read back): a plain grey one, not zeros
+            log("[efb] the screen capture's picture never came back (%u bytes at %08X)\n", cw.size, 0x80000000u | cw.guest);
+            std::memset(bytes.data(), cw.fill, cw.size);
+        }
+        std::memcpy(hostp(0x80000000u | cw.guest), bytes.data(), cw.size);
+        dumpCopy(cw, bytes.data());
+        if (std::getenv("SA2_EFB_LOG")) log("[efb] screen capture copy delivered after %.3f s (%s)\n", now - cw.since, got ? "read back" : "timed out");
+        std::lock_guard lk(s_cwLock);
+        s_cwPending.erase(s_cwPending.begin() + long(i));
+        released = s_cwPending.empty();
+    }
+    if (released) releaseHeldTokens();
+}
 
 bool gxCapturePeeks(u64 stream, u64 sequence, const GxPeek* peeks, u32 count) {
     if (!s_frame || count == 0 || redirectedToMemory()) return false;
