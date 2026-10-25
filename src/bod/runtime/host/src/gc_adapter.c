@@ -137,6 +137,10 @@ static int SDLCALL worker(void* unused) {
     Uint64 next_scan = 0;
     Uint64 last_read = 0;
     BluewakeGcaStatus last_logged = (BluewakeGcaStatus)-1;
+    // Not in the first seconds: SDL's own start-up (the window, the gamepad subsystem and its HID layer, on other threads)
+    // races a first SDL_hid_* call from here, and 2 headless boots in 24 died in SDL3 (an access violation, a heap check).
+    while (!SDL_GetAtomicInt(&g_quit) && SDL_GetTicks() < 4000)
+        SDL_Delay(50);
     while (!SDL_GetAtomicInt(&g_quit)) {
         const Uint64 now = SDL_GetTicks();
         if (dev == NULL) {
