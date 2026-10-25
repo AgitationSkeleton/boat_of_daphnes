@@ -1,0 +1,26 @@
+description In-between frames while Link holds up an item (the item-get's rays and glitter): logs where everything is on screen and dumps pictures (tools/interpjitter.py, tools/interpimages.py)
+timeout 900
+save 2-Pictobox
+size 640x360
+env BLUEWAKE_TEST_BUNNY 1
+env SA2_INTERP_TEST 0.5
+env SA2_INTERP_STEPS 4
+env SA2_INTERP_JITTER interp_jitter.log
+env SA2_INTERP_DUMP_LABELS 1
+env SA2_DUMP_DIR jitter_dump
+env SA2_DUMP_MAX 4000
+env SA2_INTERP_DUMP_BASE 1
+start load
+wait link
+bunny 1
+wait 60
+teleport sea 11 -1985 300 -200800 0
+wait link
+wait 60
+getitem 0x44
+wait 40
+jitter itemget
+wait 500
+jitter off
+wait 1500
+shot after

@@ -13,7 +13,9 @@
 #include "runtime/runtime.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -23,6 +25,9 @@
 #include <unordered_map>
 
 namespace rt {
+
+std::atomic<int> g_interpJitter{0};
+std::atomic<bool> g_interpBaseline{false};
 
 namespace {
 
@@ -277,6 +282,117 @@ Verdict blendPositions(const u8* pa, const u8* pb, u8* out, u32 n, u32 stride, u
     return Blend;
 }
 
+// n vertices (float x, y, z, `stride` apart) through the affine matrix m.
+void moveVertices(const u8* src, u8* dst, u32 n, u32 stride, const float* m) {
+    for (u32 v = 0; v < n; v++, src += stride, dst += stride) {
+        const float x = rdF(src), y = rdF(src + 4), z = rdF(src + 8);
+        wrF(dst, m[0] * x + m[1] * y + m[2] * z + m[3]);
+        wrF(dst + 4, m[4] * x + m[5] * y + m[6] * z + m[7]);
+        wrF(dst + 8, m[8] * x + m[9] * y + m[10] * z + m[11]);
+    }
+}
+// The points of a trail (camera-space float vertices) in two frames, A's (na) and B's (nb), into out at t: each of B's is blended
+// (in the world) from A's point at the same place along the trail - the best shift of the index, A's nearest end where B has more.
+void blendWorldVertices(const u8* pa, u32 na, u32 sa, const u8* pb, u32 nb, u32 sb, u8* out, const float* invA, const float* invB,
+                        const float* vt, float t) {
+    if (!na || !nb) return;
+    std::vector<float> wa(size_t(na) * 3), wb(size_t(nb) * 3);
+    auto toWorld = [](const u8* p, u32 n, u32 stride, const float* inv, float* w) {
+        for (u32 v = 0; v < n; v++, p += stride) {
+            const float x = rdF(p), y = rdF(p + 4), z = rdF(p + 8);
+            for (int r = 0; r < 3; r++) w[v * 3 + r] = inv[r * 4] * x + inv[r * 4 + 1] * y + inv[r * 4 + 2] * z + inv[r * 4 + 3];
+        }
+    };
+    if (invA) {
+        toWorld(pa, na, sa, invA, wa.data());
+        toWorld(pb, nb, sb, invB, wb.data());
+    } else {  // already positions in the world
+        auto copy = [](const u8* p, u32 n, u32 stride, float* w) {
+            for (u32 v = 0; v < n; v++, p += stride) w[v * 3] = rdF(p), w[v * 3 + 1] = rdF(p + 4), w[v * 3 + 2] = rdF(p + 8);
+        };
+        copy(pa, na, sa, wa.data());
+        copy(pb, nb, sb, wb.data());
+    }
+    constexpr int kMaxShift = 12;
+    auto cost = [&](int s) {
+        double sum = 0;
+        int n = 0;
+        for (int i = 0; i < int(nb); i++) {
+            const int j = i + s;
+            if (j < 0 || j >= int(na)) continue;
+            double d = 0;
+            for (int r = 0; r < 3; r++) d += double(wb[i * 3 + r] - wa[j * 3 + r]) * (wb[i * 3 + r] - wa[j * 3 + r]);
+            sum += std::sqrt(d), n++;
+        }
+        return n * 2 >= int(std::min(na, nb)) ? sum / n : 1e30;
+    };
+    int best = 0;
+    double bc = cost(0);
+    for (int s = -kMaxShift; s <= kMaxShift; s++)
+        if (const double c = cost(s); c < bc * 0.7) best = s, bc = c;  // (0 unless another is clearly better)
+    float m[3];
+    for (u32 i = 0; i < nb; i++) {
+        const int j = std::clamp(int(i) + best, 0, int(na) - 1);
+        float w[3];
+        for (int r = 0; r < 3; r++) {
+            const float a = wa[size_t(j) * 3 + r], b = wb[size_t(i) * 3 + r];
+            w[r] = std::fabs(b - a) > 300.f ? b : a + (b - a) * t;
+        }
+        if (vt) {
+            for (int r = 0; r < 3; r++) m[r] = vt[r * 4] * w[0] + vt[r * 4 + 1] * w[1] + vt[r * 4 + 2] * w[2] + vt[r * 4 + 3];
+        } else {
+            for (int r = 0; r < 3; r++) m[r] = w[r];
+        }
+        for (int r = 0; r < 3; r++) wrF(out + i * sb + r * 4, m[r]);
+    }
+}
+
+// A texture matrix that is a 2D rotation, scale and scroll (J3D's texture SRT, the particles' texture animation): rows of 4, the
+// 2x2 part in [0][0..1] and [1][0..1] (columns 0 and 1 of rows 0 and 1), the scroll in [0][3], [1][3]. Blended as what it is:
+// the angle (the short way round), the scale, and the point it turns about - blending the values themselves shrinks the picture
+// mid-turn (a spinning ray or glint pulses at the frame rate) - and a scroll that wrapped around (0.9 -> 0.1) carries on past 1.
+// false: not one (a projection, a mirror, almost no change): the values blend as they are.
+bool blendTexSrt(const float* a, const float* b, u32 count, float t, float* out) {
+    for (const float* m : {a, b}) {
+        if (m[2] != 0.f || m[6] != 0.f) return false;
+        if (count == 12 && (m[8] != 0.f || m[9] != 0.f || m[10] != 1.f || m[11] != 0.f)) return false;
+    }
+    auto sim = [](const float* m, float& s, float& th) {
+        s = std::hypot(m[0], m[4]);
+        th = std::atan2(m[4], m[0]);
+        return s > 1e-6f && std::fabs(m[0] - m[5]) <= 1e-3f * s && std::fabs(m[1] + m[4]) <= 1e-3f * s;
+    };
+    for (u32 q = 0; q < count; q++) out[q] = a[q] + (b[q] - a[q]) * t;
+    // the scroll that wrapped: carried on, past 1, the way the texture repeats
+    for (const u32 q : {3u, 7u}) {
+        const float d = b[q] - a[q];
+        if (std::fabs(d) > 0.5f) out[q] = a[q] + (d - std::round(d)) * t;
+    }
+    float sa, ta, sb, tb;
+    if (!sim(a, sa, ta) || !sim(b, sb, tb)) return true;  // (scroll and scale only: the values blend)
+    float dth = tb - ta;
+    while (dth > 3.14159265f) dth -= 6.2831853f;
+    while (dth < -3.14159265f) dth += 6.2831853f;
+    if (std::fabs(dth) < 0.02f) return true;
+    // the point each turns about: (I - M) c = scroll
+    auto pivot = [](const float* m, float* c) {
+        const float det = (1 - m[0]) * (1 - m[5]) - m[1] * m[4];
+        if (std::fabs(det) < 1e-3f) return false;
+        c[0] = ((1 - m[5]) * m[3] + m[1] * m[7]) / det;
+        c[1] = (m[4] * m[3] + (1 - m[0]) * m[7]) / det;
+        return std::fabs(c[0]) < 100.f && std::fabs(c[1]) < 100.f;
+    };
+    float ca[2], cb[2];
+    if (!pivot(a, ca) || !pivot(b, cb)) return true;
+    const float s = sa + (sb - sa) * t, th = ta + dth * t;
+    const float c0 = ca[0] + (cb[0] - ca[0]) * t, c1 = ca[1] + (cb[1] - ca[1]) * t;
+    const float co = s * std::cos(th), si = s * std::sin(th);
+    out[0] = co, out[1] = -si, out[4] = si, out[5] = co;
+    out[3] = (1 - co) * c0 + si * c1;
+    out[7] = -si * c0 + (1 - co) * c1;
+    return true;
+}
+
 struct Shown {
     std::shared_ptr<GxFrame> f;
     std::vector<int> match;  // per patch: the previous frame's patch it blends from (-1: none, -2: unchanged)
@@ -405,8 +521,17 @@ void matchFrames(const GxFrame& a, Shown& bs) {
     static const u64 s_debugFrame = s_debug ? std::strtoull(s_debugEnv, nullptr, 10) : 0;
     std::vector<std::string> debugLines;
     u32 unpaired[7] = {};  // per kind: values with nothing to blend from
+    // Geometry the CPU rebuilds from particles each frame (wakes, wave fans, ripples) pairs by the emitter's draw, not by values.
+    std::unordered_map<u64, int> worldA;
+    for (size_t i = 0; i < a.patches.size(); i++)
+        if (a.patches[i].world && a.patches[i].group) worldA.emplace(mix64(a.patches[i].group ^ mix64(a.patches[i].occ)), int(i));
     for (size_t i = 0; i < b.patches.size(); i++) {
         const GxPatch& pb = b.patches[i];
+        if (pb.world && !g_interpBaseline) {
+            if (pb.group)
+                if (const auto w = worldA.find(mix64(pb.group ^ mix64(pb.occ))); w != worldA.end()) bs.match[i] = w->second;
+            continue;
+        }
         if (pb.flat) continue;  // 2D: drawn as the game drew it
         if (pb.height && (pb.kind == GxPatch::Array || pb.kind == GxPatch::Vertex)) {
             bs.match[i] = -3;  // a height field: blended by position when drawn (gxInterpBuild)
@@ -535,6 +660,8 @@ const GxFrame* gxInterpNewest() { return s_hist.empty() ? nullptr : s_hist.back(
 
 double gxInterpNewestTime() { return s_hist.empty() ? 0 : s_hist.back().pts; }
 
+double gxInterpNewestStep() { return s_hist.size() < 2 ? s_gap : s_hist.back().pts - s_hist[s_hist.size() - 2].pts; }
+
 double gxInterpDelay() { return s_gap + s_lateMax + 0.0015; }
 
 double gxInterpShowTime(double now) {
@@ -549,7 +676,7 @@ double gxInterpShowTime(double now) {
     return s_when;
 }
 
-std::shared_ptr<GxFrame> gxInterpBuild(double when, std::vector<u8>& out, std::vector<std::unique_ptr<u8[]>>& keep, float* shownT) {
+static std::shared_ptr<GxFrame> buildImpl(double when, std::vector<u8>& out, std::vector<std::unique_ptr<u8[]>>& keep, float* shownT) {
     if (s_hist.empty()) return nullptr;
     // The two frames `when` falls between: the newer drawn with the older's values blended in.
     size_t k = s_hist.size() - 1;
@@ -608,7 +735,7 @@ std::shared_ptr<GxFrame> gxInterpBuild(double when, std::vector<u8>& out, std::v
     };
     auto hkey = [](float x, float z) { return u64(__builtin_bit_cast(u32, x)) << 32 | __builtin_bit_cast(u32, z); };
     for (size_t i = 0; i < b.patches.size(); i++) {
-        const int j = sb.match[i];
+        const int j = b.patches[i].world && g_interpBaseline ? -1 : sb.match[i];
         if (j == -3) {
             const GxPatch& pb = b.patches[i];
             if (pb.comps != 3) continue;
@@ -660,7 +787,7 @@ std::shared_ptr<GxFrame> gxInterpBuild(double when, std::vector<u8>& out, std::v
                 std::memset(cmds + pb.at, 0, 48);
                 continue;
             }
-            if (j == -1 && haveC && !pb.flat && pb.view == b.mainView) {
+            if (j == -1 && haveC && (!pb.flat || (pb.world && !g_interpBaseline)) && pb.view == b.mainView) {
                 if (pb.kind == GxPatch::PosMtx && pb.count == 12) {
                     float mb[12], mo[12];
                     u8* vo = cmds + pb.at;
@@ -669,20 +796,28 @@ std::shared_ptr<GxFrame> gxInterpBuild(double when, std::vector<u8>& out, std::v
                     for (int q = 0; q < 12; q++) wrF(vo + 4 * q, mo[q]);
                 } else if (pb.kind == GxPatch::Vertex && pb.viewSpace && pb.fmt == 4 && pb.comps == 3) {
                     // positions the CPU put in the camera's space (stripe particles: wakes, waves)
-                    for (u32 v = 0; v < pb.count; v++) {
-                        const u8* src = b.cmds.data() + pb.at + v * pb.stride + pb.posOff;
-                        u8* dst = cmds + pb.at + v * pb.stride + pb.posOff;
-                        const float x = rdF(src), y = rdF(src + 4), z = rdF(src + 8);
-                        wrF(dst, C[0] * x + C[1] * y + C[2] * z + C[3]);
-                        wrF(dst + 4, C[4] * x + C[5] * y + C[6] * z + C[7]);
-                        wrF(dst + 8, C[8] * x + C[9] * y + C[10] * z + C[11]);
-                    }
+                    moveVertices(b.cmds.data() + pb.at + pb.posOff, cmds + pb.at + pb.posOff, pb.count, pb.stride, C);
                 }
             }
             continue;
         }
         const GxPatch& pb = b.patches[i];
         const GxPatch& pa = a.patches[size_t(j)];
+        if (pb.world) {
+            // A trail / fan of world positions: the points of one frame are the last frame's, shifted along as new ones were
+            // added at one end - paired by where they are in the world (the shift that fits best), the new end growing out of
+            // the old one's last point, so it follows what it trails behind.
+            const bool fits = pa.fmt == 4 && pb.fmt == 4 && pa.comps == 3 && pb.comps == 3 && pa.viewSpace == pb.viewSpace;
+            if (fits && pb.worldSpace && pa.worldSpace)  // (the camera's matrix goes with them, blended with the rest)
+                blendWorldVertices(a.cmds.data() + pa.at + pa.posOff, pa.count, pa.stride, b.cmds.data() + pb.at + pb.posOff, pb.count, pb.stride,
+                                   cmds + pb.at + pb.posOff, nullptr, nullptr, nullptr, t);
+            else if (fits && haveV && pb.view == b.mainView && pa.view == a.mainView)
+                blendWorldVertices(a.cmds.data() + pa.at + pa.posOff, pa.count, pa.stride, b.cmds.data() + pb.at + pb.posOff, pb.count, pb.stride,
+                                   cmds + pb.at + pb.posOff, invA, invB, vt, t);
+            else if (haveC && pb.viewSpace)
+                moveVertices(b.cmds.data() + pb.at + pb.posOff, cmds + pb.at + pb.posOff, pb.count, pb.stride, C);
+            continue;
+        }
         const u8* va = a.cmds.data() + pa.at;
         const u8* vb = b.cmds.data() + pb.at;
         u8* vo = cmds + pb.at;
@@ -708,6 +843,14 @@ std::shared_ptr<GxFrame> gxInterpBuild(double when, std::vector<u8>& out, std::v
         case GxPatch::TexMtx: {
             // A scrolling texture wrapping around jumps by about its whole value (0.98 -> 0.02); a
             // projection (shadows, reflections: world units scaled) moves by a small share of its own.
+            if (pb.count == 8 || pb.count == 12) {
+                float fa[12], fb[12], fo[12];
+                for (u32 q = 0; q < pb.count; q++) fa[q] = rdF(va + 4 * q), fb[q] = rdF(vb + 4 * q);
+                if (blendTexSrt(fa, fb, pb.count, t, fo)) {
+                    for (u32 q = 0; q < pb.count; q++) wrF(vo + 4 * q, fo[q]);
+                    break;
+                }
+            }
             bool wrap = false;
             for (u32 q = 0; q < pb.count; q++) {
                 const float x = rdF(va + 4 * q), y = rdF(vb + 4 * q);
@@ -761,6 +904,77 @@ std::shared_ptr<GxFrame> gxInterpBuild(double when, std::vector<u8>& out, std::v
         }
     }
     return sb.f;
+}
+
+// SA2_INTERP_JITTER=<file> (debugging, with SA2_INTERP_TEST/STEPS): per build, where each drawn thing is on screen, as
+// "frame t key patches x y" (its 3D position matrices' and view-space vertices' mean, in the view's x/z, y/z). A thing that moves
+// smoothly steps evenly from build to build; one that sits still for a game frame and then jumps is a jitter
+// (tools/interpjitter.py lists them).
+static void jitterLog(const GxFrame& b, const std::vector<u8>& out, float t) {
+    static FILE* f = [] {
+        const char* p = std::getenv("SA2_INTERP_JITTER");
+        return p ? std::fopen(p, "a") : nullptr;
+    }();
+    if (!f || !b.jitter) return;
+    struct Acc {
+        double x = 0, y = 0;
+        u32 n = 0, mtx = 0, vtx = 0, world = 0, grouped = 0, paired = 0, same = 0, unpaired = 0;
+    };
+    std::unordered_map<u64, Acc> acc;
+    const u8* cmds = out.data() + b.preamble.size();
+    const std::vector<int>* match = nullptr;  // how each patch paired with the frame before it
+    for (const Shown& s : s_hist)
+        if (s.f.get() == &b) match = &s.match;
+    auto add = [&](u64 key, float x, float y, float z, const GxPatch& p) {
+        if (z > -50.f) return;
+        Acc& a = acc[key];
+        if (match) {
+            const int m = (*match)[size_t(&p - b.patches.data())];
+            (m >= 0 ? a.paired : m == -2 ? a.same : a.unpaired)++;
+        }
+        a.x += x / -z, a.y += y / -z, a.n++;
+        (p.kind == GxPatch::PosMtx ? a.mtx : a.vtx)++, a.world += p.world, a.grouped += p.group != 0;
+    };
+    for (const GxPatch& p : b.patches) {
+        if ((p.flat && !p.world) || p.view != b.mainView) continue;
+        const u64 key = p.group ? p.group : p.key;
+        if (p.kind == GxPatch::PosMtx && p.count == 12) {
+            add(key, rdF(cmds + p.at + 12), rdF(cmds + p.at + 28), rdF(cmds + p.at + 44), p);
+        } else if (p.kind == GxPatch::Vertex && p.viewSpace && p.fmt == 4 && p.comps == 3 && p.count) {
+            float x = 0, y = 0, z = 0;
+            for (u32 v = 0; v < p.count; v++) {
+                const u8* q = cmds + p.at + v * p.stride + p.posOff;
+                x += rdF(q), y += rdF(q + 4), z += rdF(q + 8);
+            }
+            add(key ^ 0x5eed, x / p.count, y / p.count, z / p.count, p);
+        }
+    }
+    for (const auto& [k, a] : acc)
+        std::fprintf(f, "%d %llu %.3f %016llx %u %.5f %.5f m%uv%uw%ug%up%us%uu%u\n", b.jitter + (g_interpBaseline ? 1000 : 0), (unsigned long long)b.index, t,
+                     (unsigned long long)k, a.n, a.x / a.n, a.y / a.n, a.mtx, a.vtx, a.world, a.grouped, a.paired, a.same, a.unpaired);
+    std::fflush(f);
+}
+
+std::shared_ptr<GxFrame> gxInterpBuild(double when, std::vector<u8>& out, std::vector<std::unique_ptr<u8[]>>& keep, float* shownT) {
+    float t = 1.f;
+    auto r = buildImpl(when, out, keep, &t);
+    if (shownT) *shownT = t;
+    // SA2_INTERP_HIDEKEY=<hex group,...> (debugging): those groups' position matrices are collapsed - what disappears is what they drew.
+    static const std::vector<u64> s_hideKeys = [] {
+        std::vector<u64> v;
+        for (const char* p = std::getenv("SA2_INTERP_HIDEKEY"); p && *p;) {
+            char* e;
+            v.push_back(std::strtoull(p, &e, 16));
+            p = *e ? e + 1 : e;
+        }
+        return v;
+    }();
+    if (r && !s_hideKeys.empty())
+        for (const GxPatch& p : r->patches)
+            if (p.kind == GxPatch::PosMtx && p.count == 12 && std::find(s_hideKeys.begin(), s_hideKeys.end(), p.group ? p.group : p.key) != s_hideKeys.end())
+                std::memset(out.data() + r->preamble.size() + p.at, 0, 48);
+    if (r) jitterLog(*r, out, t);
+    return r;
 }
 
 }  // namespace rt

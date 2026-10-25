@@ -1831,6 +1831,15 @@ static int g_give_wait; // frames since the item was made (0: none waiting)
 static u32 g_give_pid;  // the field item's process id
 static int g_give_watch; // frames still to log the item's state (a diagnostic)
 
+// Testing (script command `getitem N`, needs the feature on): Link picks up item N the way the game gives items.
+bool bluewake_dev_get_item(unsigned item) {
+    if (!g_enabled)
+        return false;
+    g_give_item = item;
+    g_give_request = 1;
+    return true;
+}
+
 bool bluewake_bunny_hood_give(void) {
     if (!g_enabled)
         return false;
