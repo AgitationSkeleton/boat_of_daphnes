@@ -1858,6 +1858,8 @@ static char g_spawn_name[16];
 static u32 g_spawn_params;
 static float g_spawn_dist;
 static volatile int g_spawn_request;
+static bool g_spawn_abs;  // `spawnat`: the place is the given one, not in front of Link
+static float g_spawn_at[3];
 
 bool bluewake_dev_spawn(const char* name, unsigned params, float distance) {
     if (name == NULL || name[0] == '\0' || strlen(name) >= sizeof g_spawn_name)
@@ -1865,7 +1867,17 @@ bool bluewake_dev_spawn(const char* name, unsigned params, float distance) {
     memcpy(g_spawn_name, name, strlen(name) + 1u);
     g_spawn_params = params;
     g_spawn_dist = distance;
+    g_spawn_abs = false;
     g_spawn_request = 1;
+    return true;
+}
+
+// Testing (console `spawnat NAME PARAMS X Y Z`): the same, at a place in the stage (a bomb at a wall's collider, say).
+bool bluewake_dev_spawn_at(const char* name, unsigned params, const float* pos) {
+    if (!bluewake_dev_spawn(name, params, 0.f))
+        return false;
+    memcpy(g_spawn_at, pos, sizeof g_spawn_at);
+    g_spawn_abs = true;
     return true;
 }
 
@@ -1878,8 +1890,9 @@ static void spawn_pass(GuestCoro* co, CPUState* cpu) {
         return;
     const s16 facing = (s16)mem_read16(cpu, player + 0x206u); // current.angle.y (0 faces +z)
     const float a = (float)facing * 3.14159265f / 32768.f;
-    const float pos[3] = {read_f32(cpu, player + PLAYER_POS) + g_spawn_dist * sinf(a), read_f32(cpu, player + PLAYER_POS + 4u),
-                          read_f32(cpu, player + PLAYER_POS + 8u) + g_spawn_dist * cosf(a)};
+    const float pos[3] = {g_spawn_abs ? g_spawn_at[0] : read_f32(cpu, player + PLAYER_POS) + g_spawn_dist * sinf(a),
+                          g_spawn_abs ? g_spawn_at[1] : read_f32(cpu, player + PLAYER_POS + 4u),
+                          g_spawn_abs ? g_spawn_at[2] : read_f32(cpu, player + PLAYER_POS + 8u) + g_spawn_dist * cosf(a)};
     for (int i = 0; i < 3; ++i) {
         u32 bits;
         memcpy(&bits, &pos[i], 4);

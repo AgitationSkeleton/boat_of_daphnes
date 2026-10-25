@@ -22,6 +22,7 @@ bool bluewake_bunny_hood_enabled(void);
 bool bluewake_bunny_hood_give(void);
 unsigned long long bluewake_host_retrace_count(void);
 bool bluewake_dev_spawn(const char* name, unsigned params, float distance);
+bool bluewake_dev_spawn_at(const char* name, unsigned params, const float* pos);
 #include "dev_tools.h"  // the host's (runtime/host/src)
 #include "game_state.h"
 }
@@ -683,6 +684,15 @@ std::string RunCommand(const std::string& line) {
         if (!bluewake_dev_spawn(w[1].c_str(), params, distance))
             return "spawn: a name of up to 15 characters";
         return "spawning " + w[1] + " (the log's [test] spawn line has its process id)";
+    }
+    if (cmd == "spawnat") {
+        // spawnat NAME PARAMS X Y Z: the same at a place in the stage (a test's bomb at a wall's collider: Bomb2, params 0, goes off at once).
+        if (w.size() < 6)
+            return "usage: spawnat <name> <params> <x> <y> <z>";
+        const float at[3] = {std::strtof(w[3].c_str(), nullptr), std::strtof(w[4].c_str(), nullptr), std::strtof(w[5].c_str(), nullptr)};
+        if (!bluewake_dev_spawn_at(w[1].c_str(), static_cast<unsigned>(std::strtoul(w[2].c_str(), nullptr, 0)), at))
+            return "spawnat: a name of up to 15 characters";
+        return "spawning " + w[1] + " at " + w[3] + " " + w[4] + " " + w[5];
     }
     if (cmd == "actors") {
         // actors [name part]: the live actors whose name holds it, with where they are (a test can check that one exists).

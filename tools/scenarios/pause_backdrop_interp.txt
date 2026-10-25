@@ -1,0 +1,21 @@
+description BR-0051: opening the pause menu with Interpolation FPS 120: every drawn frame (in-between ones too) is dumped; the backdrop must not stutter between them
+# Look at shots/dump_NNNN.png in order around the frame where the pause menu starts to open (the backdrop copy of the scene is
+# drawn stretched behind it); pause_backdrop_nointerp.txt is the same at 30 (in-between frames off) for comparison.
+windowed
+size 640x360
+save 2-Pictobox
+cvar gSettings.Graphics.InterpolationFPS 120
+env SA2_DUMP_MAX 400
+timeout 240
+start load
+wait link
+wait 120
+dumpframes 300
+wait 20
+press START 8
+wait 150
+shot pause_open
+press START 8
+wait 60
+log PAUSE backdrop done
+expect \[script\] PAUSE backdrop done

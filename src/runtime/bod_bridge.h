@@ -44,6 +44,7 @@ bool testScriptPad(uint16_t* buttons, int8_t* stickX, int8_t* stickY, int8_t* cs
 bool testScriptShot(char* out, unsigned size);
 // The script's `snap`: release the Picto Box's shutter at the next dSnap_Execute (efbpeek.cpp): true once per request.
 bool testScriptSnap();
+bool testScriptDumpFrame(char* out, unsigned size);   // a scenario's `dumpframes N`: the next drawn frame's file, while some are due
 // bod_api.cpp: its host code on its CPUState.
 void apiAttach();                                       // once, before the game runs
 void apiRetrace();                                      // each retrace, on the game thread

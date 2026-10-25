@@ -907,6 +907,7 @@ int runFrontend(int argc, char** argv, bool headless, u64 maxFrames, void (*star
             }
         }
         if (char shotPath[512]; newFrame && bod::testScriptShot(shotPath, sizeof shotPath)) dumpEfb(shotPath);  // (a scenario's `shot`)
+        if (char dumpPath[512]; bod::testScriptDumpFrame(dumpPath, sizeof dumpPath)) dumpEfb(dumpPath);  // (its `dumpframes`: every drawn frame)
         if (!headless) bod::hostOverlay();  // Boat of Daphnes' menu and windows, over the picture
         const double c3 = gxNow();
         s_tOverlay += c3 - c2;

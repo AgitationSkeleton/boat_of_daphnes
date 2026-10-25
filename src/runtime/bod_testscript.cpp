@@ -141,6 +141,7 @@ struct Script {
     // frame dump requests
     std::string shot_path;
     bool shot_pending = false;
+    int dump_left = 0, dump_n = 0;  // `dumpframes N`: the next N drawn frames (in-between ones too), dump_NNNN.rgba
     int shots = 0;
     std::string shot_dir;
     std::atomic<bool> snap{false};  // a shutter release asked for (the game thread's dSnap_Execute takes it)
@@ -399,6 +400,16 @@ bool runCommand(const Command& c, bool first, u64 since) {
         std::lock_guard g(S.lock);
         return !S.shot_pending || timedOut(300, "the frame was not dumped");
     }
+    if (v == "dumpframes") {
+        // dumpframes N: from now on, each drawn frame (with in-between frames on, the ones between the game's too) is dumped,
+        // N of them, as shots/dump_0000.png ...
+        if (first) {
+            std::lock_guard g(S.lock);
+            S.dump_left = int(num(a, 0, 60));
+            log("dumpframes %d", S.dump_left);
+        }
+        return true;
+    }
     if (v == "snap") {
         // snap: the Picto Box's shutter, released directly (what the A button starts) while its viewfinder is up
         S.snap = true;
@@ -600,4 +611,13 @@ bool testScriptShot(char* out, unsigned size) {
     return true;
 }
 bool testScriptSnap() { return S.snap.exchange(false); }
+
+bool testScriptDumpFrame(char* out, unsigned size) {
+    if (S.cmds.empty()) return false;
+    std::lock_guard g(S.lock);
+    if (S.dump_left <= 0) return false;
+    --S.dump_left;
+    std::snprintf(out, size, "%s/dump_%04d.rgba", S.shot_dir.c_str(), S.dump_n++);
+    return true;
+}
 }  // namespace rt::bod
