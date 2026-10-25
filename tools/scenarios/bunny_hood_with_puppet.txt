@@ -4,7 +4,7 @@ save 2-Pictobox
 windowed
 env BLUEWAKE_TEST_BUNNY 1
 env BLUEWAKE_PUPPET_SELF 80
-env BLUEWAKE_PUPPET_SELF_MODEL D:\Claude_WW\Workfolders\bluewake-but-good\local\scratch\wt3_local\young_Link.arc
+env BLUEWAKE_PUPPET_SELF_MODEL {LOCAL}\scratch\young_Link.arc
 start load
 wait link
 poke 0x803C4CC0=0x0C/1

@@ -104,7 +104,7 @@ WHEELS = WHEELS_WINDOWS if WINDOWS else WHEELS_LINUX
 WWRANDO_REPO = "https://github.com/LagoLunatic/wwrando"
 WWRANDO_COMMIT = "86b97db521989bf4626870f58fd99c862a46d1d3"
 WWRANDO_TREE_SHA256 = "afb637654e865b3f0508f376a9e860343a97627d09f1af3b61fac3db0c0e7d98"
-WWRANDO_DEFAULT_SRC = r"D:\Claude_WW\READ_ONLY_SourceCodes\wwrando-master"
+WWRANDO_DEFAULT_SRC = ""  # (no machine path here: a local checkout comes from --wwrando-src or WWRANDO_SRC, else the download)
 # What gets copied: the generator and its data. Not the Qt UI, assets, docs, tests or build scripts.
 WWRANDO_TOP_FILES = ["randomizer.py", "tweaks.py", "customizer.py", "data_tables.py", "packedbits.py", "version.py",
                      "version.txt", "wwrando_paths.py", "wwrando.py", "LICENSE.txt"]

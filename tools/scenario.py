@@ -65,7 +65,7 @@ LOCAL = find_local()
 
 
 def default_iso() -> str:
-    for cand in (os.environ.get("BOD_DISC"), r"D:\Claude_WW\READ_ONLY_GameROMs\Legend of Zelda, The - The Wind Waker (USA).iso"):
+    for cand in (os.environ.get("BOD_DISC"),):  # (the disc: --iso or BOD_DISC; no machine path in the tool)
         if cand and Path(cand).is_file():
             return cand
     return ""
@@ -104,7 +104,8 @@ def parse(path: Path) -> dict:
             s["cvars"][name] = value.strip()
         elif verb == "env":
             name, _, value = rest.partition(" ")
-            s["env"][name] = value.strip()
+            # {LOCAL}: the checkout's git-ignored local/ folder (scratch files, models made for tests), so scenarios name no machine path
+            s["env"][name] = value.strip().replace("{LOCAL}", str(LOCAL) if LOCAL else "local")
         elif verb == "options":
             s["options"] = rest
         elif verb == "timeout":

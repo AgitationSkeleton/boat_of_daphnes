@@ -5,7 +5,7 @@ save 2-Pictobox
 env BLUEWAKE_TINGLE_TUNER inapp
 env BLUEWAKE_GBA_LOG 1
 env BLUEWAKE_GBA_KEYS 4300:0x0100:6,4420:0x0100:6,4540:0x0100:6,4660:0x0100:6,4780:0x0100:6,4900:0x0100:6,5020:0x0100:6,5140:0x0100:6,5400:0x0200:6,5600:0x0200:6
-env BLUEWAKE_GBA_DUMP D:/Claude_WW/Workfolders/bluewake-but-good/local/scratch/tingle/gba_%u.ppm
+env BLUEWAKE_GBA_DUMP {LOCAL}/scratch/tingle/gba_%u.ppm
 start load
 wait link
 give tingle_tuner
