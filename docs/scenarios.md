@@ -71,6 +71,11 @@ it, no event, no scene change, steady for 20 retraces).
 | `winshot NAME` | PNGs of the game's windows (the menu too) in `shots/` |
 | `reveal 0\|1`, `bunny 0\|1` | the Reveal Sea Chart / Bunny Hood features (a headless run has no settings screen) |
 | `log TEXT` | a marker line `[script] TEXT` to `expect` on |
+| `gyro PITCH YAW` / `gyro off` / `gyro mode N` | a constant synthetic gyro turn (deg/s, up and left positive) and Gyro Mode, for the gyro scenarios |
+| `giveitem N` | field item N given as a chest gives one (needs `env BLUEWAKE_TEST_BUNNY 1`); `console spawnat NAME PARAMS X Y Z` makes an actor at a place |
+| `dumpframes N` | the next N drawn frames (in-between ones too) as `shots/dump_NNNN.png` |
+| `menu set NAME=VALUE`, `menu set gTest.MenuScroll=N` | a setting changed as the menu would; the page scrolled |
+| `start fileselect [SLOT]` | only as far as the file list (with `env BLUEWAKE_TEST_SCRIPT_UI_PAD 1` the script's presses reach the quest select) |
 | `quit` | end the run (it ends 45 retraces after the last command anyway, so a `shot` is written) |
 
 Every command logs `[script] line N at retrace R: ...`; the rest of the log is the game's, so `expect` can use any of it

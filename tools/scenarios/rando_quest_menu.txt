@@ -1,0 +1,24 @@
+description File select on an empty file: the Select a Quest screen (Vanilla, Randomizer) and the Randomizer menu; exactly one "Choose" (A) prompt shows on each
+# Captures only (look at shots/*.png): BR-0056 was a second A prompt beside the game's own on those two screens.
+windowed
+size 1920x820
+save 2-Pictobox
+env BLUEWAKE_TEST_SCRIPT_UI_PAD 1
+timeout 240
+start fileselect 1
+wait 90
+winshot list
+press A 8
+wait 100
+winshot quest_vanilla
+press RIGHT 8
+wait 40
+winshot quest_randomizer
+press A 8
+wait 100
+winshot rando_menu
+press B 8
+wait 60
+winshot quest_again
+log RANDO menu done
+expect \[script\] RANDO menu done

@@ -1,0 +1,54 @@
+description Gyro while sailing (Link riding the King of Red Lions): the first-person look is not the gyro's in Gyro Mode 1, nothing turns in either mode
+timeout 600
+save 5-BombsEarly
+start load
+wait link
+ride sea 45 0
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+wait 600
+peek 0x803CA8D0/4 sail
+gyro mode 1
+cstick 0 100
+wait 60
+peek 0x803CA8D0/4 sail_look
+log GYRO sail_mode1 begin
+gyro 30 40
+wait 90
+log GYRO sail_mode1 end
+gyro off
+cstick 0 0
+gyro mode 0
+wait 30
+log GYRO sail_mode0 begin
+gyro 30 40
+wait 90
+log GYRO sail_mode0 end
+gyro off
+expect_peek sail & 0x10000

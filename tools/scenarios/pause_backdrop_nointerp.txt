@@ -1,0 +1,19 @@
+description BR-0051 comparison: the same pause menu opening with Interpolation FPS 30 (in-between frames off)
+windowed
+size 640x360
+save 2-Pictobox
+cvar gSettings.Graphics.InterpolationFPS 30
+env SA2_DUMP_MAX 400
+timeout 240
+start load
+wait link
+wait 120
+dumpframes 300
+wait 20
+press START 8
+wait 150
+shot pause_open
+press START 8
+wait 60
+log PAUSE backdrop done
+expect \[script\] PAUSE backdrop done

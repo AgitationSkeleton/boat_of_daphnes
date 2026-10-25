@@ -1,0 +1,35 @@
+description Gyro and the Grappling Hook: the yaw turns Link, and the pitch tilts the aim (kept by the gyro: the rope's camera style makes the ratio from Link's body each frame)
+# `gyro PITCH YAW` is a constant synthetic turn in degrees a second (up and left positive); the log's [gyro-test] lines have the
+# active flag, Link's facing, his body pitch (the aim's) and the camera's pitch ratio. 0x20000 in the status word at 0x803CA8D0 is the rope's aim.
+save 2-Pictobox
+env BLUEWAKE_TEST_GYRO_MODE 0
+start load
+wait link
+give grappling_hook
+wait 30
+equip X grappling_hook
+wait 20
+press X 10
+wait 90
+peek 0x803CA8D0/4 rope
+log GYRO rope_still begin
+wait 60
+log GYRO rope_still end
+gyro 0 40
+log GYRO rope_yaw begin
+wait 90
+log GYRO rope_yaw end
+gyro -30 0
+log GYRO rope_down begin
+wait 90
+log GYRO rope_down end
+shot rope_down
+gyro 30 0
+log GYRO rope_up begin
+wait 150
+log GYRO rope_up end
+shot rope_up
+gyro off
+press B 10
+wait 60
+expect_peek rope & 0x20000

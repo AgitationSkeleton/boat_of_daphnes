@@ -44,10 +44,13 @@ bool testScriptPad(uint16_t* buttons, int8_t* stickX, int8_t* stickY, int8_t* cs
 bool testScriptShot(char* out, unsigned size);
 // The script's `snap`: release the Picto Box's shutter at the next dSnap_Execute (efbpeek.cpp): true once per request.
 bool testScriptSnap();
+bool testScriptDumpFrame(char* out, unsigned size);   // a scenario's `dumpframes N`: the next drawn frame's file, while some are due
 // bod_api.cpp: its host code on its CPUState.
 void apiAttach();                                       // once, before the game runs
 void apiRetrace();                                      // each retrace, on the game thread
 void gyroFrame();                                        // each game frame after its work (gyro.cpp)
+void gyroTestMode(int mode);                             // `gyro mode N`
+void gyroTestSet(float pitch, float yaw, bool on);       // a scenario's `gyro PITCH YAW` / `gyro off` (gyro.cpp)
 void apiPads(void* pads, unsigned long long retrace);   // PADStatus[4] as read: the adapter's merged in
 bool apiMotorForward(unsigned channel, unsigned motor); // the game's rumble: true to drive the pads
 unsigned apiFeatureEnter(Regs regs, unsigned address);  // its intercepts (Forest Water, Quick Doors)

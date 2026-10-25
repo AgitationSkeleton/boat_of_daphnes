@@ -1,0 +1,29 @@
+description Gyro Mode: in the plain first-person look (C-stick up) the gyro turns Link in mode 1 and not in mode 0
+save 2-Pictobox
+start load
+wait link
+wait 60
+gyro mode 0
+cstick 0 100
+wait 60
+peek 0x803CA8D0/4 look0
+log GYRO fp_mode0 begin
+gyro 0 40
+wait 90
+log GYRO fp_mode0 end
+gyro off
+cstick 0 0
+wait 90
+gyro mode 1
+cstick 0 100
+wait 60
+peek 0x803CA8D0/4 look1
+log GYRO fp_mode1 begin
+gyro 0 40
+wait 90
+log GYRO fp_mode1 end
+gyro off
+cstick 0 0
+wait 60
+expect_peek look0 & 0x2000
+expect_peek look1 & 0x2000

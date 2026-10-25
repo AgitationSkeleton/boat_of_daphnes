@@ -1,0 +1,33 @@
+description Gyro and the Boomerang: X held aims it (status 0x80000), and the gyro turns and tilts the aim
+# (a tap of X throws it at once: the aim is the hold)
+save 2-Pictobox
+env BLUEWAKE_TEST_GYRO_MODE 0
+start load
+wait link
+give boomerang
+wait 30
+equip X boomerang
+wait 20
+hold X
+wait 90
+peek 0x803CA8D0/4 boomerang
+log GYRO boom_still begin
+wait 60
+log GYRO boom_still end
+gyro 0 40
+log GYRO boom_yaw begin
+wait 90
+log GYRO boom_yaw end
+gyro 30 0
+log GYRO boom_up begin
+wait 90
+log GYRO boom_up end
+gyro -30 0
+log GYRO boom_down begin
+wait 90
+log GYRO boom_down end
+shot boom_down
+gyro off
+release X
+wait 60
+expect_peek boomerang & 0x80000

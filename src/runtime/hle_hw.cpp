@@ -103,6 +103,19 @@ HLE(VIInit) {
     bool expected = false;
     if (s_viRunning.compare_exchange_strong(expected, true)) std::thread(viThread).detach();
 }
+// JUTVideo's constructor installs these two retrace callbacks before it clears its own callback fields, and the manager
+// pointer (JUTVideo::sManager, 803F78D8) is only set when the constructor returns. A retrace that lands in that stretch (the
+// guest thread was scheduled late, a loaded PC) would call through NULL + 0x24 - the OS version word, 1 - and die with
+// "call to 00000001". On the console the stretch is a few instructions; here a retrace interrupt waits for the thread's next
+// safe point, so it is hit now and then. Those retraces are dropped: there is nothing for them to do yet.
+HLE(preRetraceProc__8JUTVideoFUl) {
+    if (rd32(0x803F78D8) == 0) return;
+    callOriginal(c, "preRetraceProc__8JUTVideoFUl");
+}
+HLE(postRetraceProc__8JUTVideoFUl) {
+    if (rd32(0x803F78D8) == 0) return;
+    callOriginal(c, "postRetraceProc__8JUTVideoFUl");
+}
 HLE(VISetNextFrameBuffer) {
     s_xfb = c.r[3];
     callOriginal(c, "VISetNextFrameBuffer");

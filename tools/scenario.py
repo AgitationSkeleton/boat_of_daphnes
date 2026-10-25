@@ -398,8 +398,10 @@ def run(args, s: dict) -> dict:
                         (out / "stop.flag").touch()
                     else:
                         proc.kill()
+                seen: dict[str, int] = {}
                 for m in re.finditer(r"\[script\] winshot (\S+)", text):
-                    key = f"{m.group(1)}@{m.start()}"
+                    seen[m.group(1)] = seen.get(m.group(1), 0) + 1
+                    key = f"{m.group(1)}#{seen[m.group(1)]}"  # (not the line's offset: it moves as the logs grow)
                     if key not in shots_done:
                         shots_done.add(key)
                         got = window_shots(child_pids(proc.pid) + [proc.pid], out / "shots" / m.group(1))

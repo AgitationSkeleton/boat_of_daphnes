@@ -217,6 +217,13 @@ void pollPads() {
             s = PADStatus{};
             s.err = err;
         }
+    // BLUEWAKE_TEST_SCRIPT's presses (bod_testscript.cpp) go over the pad after that filter, so the file select's quest menu does
+    // not see them (a new game's A reaches the game); BLUEWAKE_TEST_SCRIPT_UI_PAD=1 sends them through it, as a real pad's are.
+    static const bool s_scriptUiPad = std::getenv("BLUEWAKE_TEST_SCRIPT_UI_PAD") != nullptr;
+    uint16_t scriptB = 0;
+    int8_t scriptSx = 0, scriptSy = 0, scriptCx = 0, scriptCy = 0;
+    const bool scriptPad = bod::testScriptPad(&scriptB, &scriptSx, &scriptSy, &scriptCx, &scriptCy);
+    if (scriptPad && s_scriptUiPad) st[0].button |= scriptB;
     // Its file select's quest menu (rando_flow.cpp) sees port 1's presses; while it has the focus the game sees none.
     st[0].button = bluewake_ui_pad_filter(st[0].button);
     bluewake_ui_pad_filter_axes(&st[0].stickX, &st[0].stickY);
@@ -234,10 +241,10 @@ void pollPads() {
     if (scripted & PAD_BUTTON_LEFT) st[0].stickX = -100;
     if (scripted & PAD_BUTTON_RIGHT) st[0].stickX = 100;
     {   // BLUEWAKE_TEST_SCRIPT's input (bod_testscript.cpp): its presses and sticks, over the pad
-        uint16_t b = 0;
-        int8_t sx = 0, sy = 0, cx = 0, cy = 0;
-        if (bod::testScriptPad(&b, &sx, &sy, &cx, &cy)) {
-            st[0].button |= b;
+        const uint16_t b = scriptB;
+        const int8_t sx = scriptSx, sy = scriptSy, cx = scriptCx, cy = scriptCy;
+        if (scriptPad) {
+            if (!s_scriptUiPad) st[0].button |= b;
             if (sx || sy) st[0].stickX = sx, st[0].stickY = sy;
             if (cx || cy) st[0].substickX = cx, st[0].substickY = cy;
             if (b & PAD_TRIGGER_R) st[0].triggerRight = 255;
@@ -944,6 +951,7 @@ int runFrontend(int argc, char** argv, bool headless, u64 maxFrames, void (*star
             }
         }
         if (char shotPath[512]; newFrame && bod::testScriptShot(shotPath, sizeof shotPath)) dumpEfb(shotPath);  // (a scenario's `shot`)
+        if (char dumpPath[512]; bod::testScriptDumpFrame(dumpPath, sizeof dumpPath)) dumpEfb(dumpPath);  // (its `dumpframes`: every drawn frame)
         if (!headless) bod::hostOverlay();  // Boat of Daphnes' menu and windows, over the picture
         const double c3 = gxNow();
         s_tOverlay += c3 - c2;

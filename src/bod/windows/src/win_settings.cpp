@@ -1818,6 +1818,32 @@ void draw_hint(SDL_Window* w) {
 // value that is not a number sets a string CVar (the menu's page, say). Two
 // names are not settings: gSettings.Presets.Apply applies the preset numbered
 // by the value, and gTest.Menu opens (1) or closes (0) the menu.
+void apply_test_change(const std::string& cvar, int value, const std::string& text, bool is_text, unsigned frames) {
+    build_menu();
+    if (cvar == "gSettings.Presets.Apply") {
+        apply_preset(value);
+        return;
+    }
+    if (cvar == "gTest.CosmeticsPreset") {
+        cosmetics::TestApplyPreset(text);
+        return;
+    }
+    if (cvar == "gTest.Menu") {
+        set_menu_open(value != 0);
+        return;
+    }
+    if (is_text) {
+        CVarSetString(cvar.c_str(), text.c_str());
+        changed();
+        std::fprintf(stderr, "[test] set %s=%s at frame %u\n", cvar.c_str(), text.c_str(), frames);
+        return;
+    }
+    CVarSetInteger(cvar.c_str(), value);
+    changed();
+    const bool fired = g_menu.FireCallback(cvar);
+    std::fprintf(stderr, "[test] set %s=%d at frame %u (callback %s)\n", cvar.c_str(), value, frames, fired ? "ran" : "none");
+}
+
 void apply_test_changes() {
     struct Change {
         unsigned frame;
@@ -1856,30 +1882,7 @@ void apply_test_changes() {
         if (change.done || frames < change.frame)
             continue;
         change.done = true;
-        build_menu();
-        if (change.cvar == "gSettings.Presets.Apply") {
-            apply_preset(change.value);
-            continue;
-        }
-        if (change.cvar == "gTest.CosmeticsPreset") {
-            cosmetics::TestApplyPreset(change.text);
-            continue;
-        }
-        if (change.cvar == "gTest.Menu") {
-            set_menu_open(change.value != 0);
-            continue;
-        }
-        if (change.is_text) {
-            CVarSetString(change.cvar.c_str(), change.text.c_str());
-            changed();
-            std::fprintf(stderr, "[test] set %s=%s at frame %u\n", change.cvar.c_str(), change.text.c_str(), frames);
-            continue;
-        }
-        CVarSetInteger(change.cvar.c_str(), change.value);
-        changed();
-        const bool fired = g_menu.FireCallback(change.cvar);
-        std::fprintf(stderr, "[test] set %s=%d at frame %u (callback %s)\n", change.cvar.c_str(), change.value, frames,
-                     fired ? "ran" : "none");
+        apply_test_change(change.cvar, change.value, change.text, change.is_text, frames);
     }
 }
 
@@ -1931,6 +1934,14 @@ void frame(void*) {
             spec = requested;
         if (spec == "close") {
             set_menu_open(false);
+        } else if (spec.rfind("set ", 0) == 0) {  // `menu set NAME=VALUE`: a setting changed as the menu would (UI Scale, say)
+            const size_t eq = spec.find('=');
+            if (eq != std::string::npos) {
+                const std::string value = spec.substr(eq + 1);
+                char* end = nullptr;
+                const long number = std::strtol(value.c_str(), &end, 10);
+                apply_test_change(spec.substr(4, eq - 4), static_cast<int>(number), value, value.empty() || *end != '\0', 0);
+            }
         } else if (!spec.empty()) {
             const size_t slash = spec.find('/');
             const std::string header = spec.substr(0, slash);

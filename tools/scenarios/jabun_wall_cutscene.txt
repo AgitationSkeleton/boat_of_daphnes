@@ -1,0 +1,38 @@
+description BR-0018: break Jabun's cave rock wall in its three stages with real explosions; the last cutscene must end (the whirlpool shrinks, Link is free)
+# Obj_Ajav (process 0x88; M_status at +0xC22 counts the stages, mActionIdx at +0xC24 is its state, 3 = waiting for the rocks to settle)
+# is hit by a bomb's explosion at its collider (the wall's sphere centre is the actor's place plus (0,2550,200), (250,1270,200) and
+# (-290,740,200) for the three stages: the ship's cannon makes these hits). `spawnat Bomb2 0 X Y Z` makes a bomb that goes off at once.
+save 5-BombsEarly
+env BLUEWAKE_TEST_BUNNY 1
+start load
+skip
+warp sea 44 0
+skip
+wait 30
+teleport sea 44 -205542 100 324800 32768
+skip
+wait 60
+peek actor:0x88+0xC22/1 stage_0
+console spawnat Bomb2 0 -205542 2550 324497
+wait 240
+skip
+wait 60
+peek actor:0x88+0xC22/1 stage_1
+console spawnat Bomb2 0 -205292 1270 324497
+wait 240
+skip
+wait 60
+peek actor:0x88+0xC22/1 stage_2
+console spawnat Bomb2 0 -205832 740 324497
+wait 300
+shot final_stage
+peek actor:0x88+0xC22/1 stage_3
+peek actor:0x88+0xC24/1 action_3
+skip 1800
+peek actor:0x88+0xC22/1 stage_end
+peek 0x803C9EA2/1 event_end
+shot after_cutscene
+expect_peek stage_0 == 0
+expect_peek stage_1 == 1
+expect_peek stage_2 == 2
+expect_peek event_end == 0

@@ -43,6 +43,8 @@ constexpr u32 kStatus0 = 0x803C5EA8u + 0x4A28u, kStatus1 = kStatus0 + 4u;
 constexpr u32 kFirstPerson = 0x00002000u;                                  // SUBJECT
 constexpr u32 kAimItems0 = 0x00001000u | 0x00004000u | 0x00020000u | 0x00080000u | 0x00200000u;  // bow, hookshot, rope, boomerang, telescope
 constexpr u32 kPictoBox1 = 0x00000008u;
+constexpr u32 kRopeAim = 0x00020000u;   // the Grappling Hook's aim (daPyStts0_ROPE_AIM_e)
+constexpr u32 kShipRide = 0x00010000u;  // sailing: Link on the ship (daPyStts0_SHIP_RIDE_e)
 
 // The game's objects (GZLE01): the player actor, and dCamera_c inside the camera process (g_dComIfG_gameInfo.play).
 constexpr u32 kPlayerPtr = 0x803C5EA8u + 0x48A4u;      // mPlayerInfo[0].mpPlayer
@@ -88,6 +90,7 @@ std::atomic<float> s_outPitch{0};  // what the poll hands the game thread (deg/s
 std::atomic<bool> s_outActive{false};
 std::atomic<u64> s_outFrame{0};
 double s_lastTime = 0;
+float s_ropeRatio = 0;  // the Grappling Hook's pitch, kept here (its camera style makes the pitch ratio from Link's body each frame)
 
 double now() {
     using namespace std::chrono;
@@ -127,7 +130,15 @@ const std::vector<TestSeg>& testSegments() {
     }();
     return v;
 }
+// A scenario's `gyro PITCH YAW` / `gyro off` (bod_testscript.cpp): the same turn, for as long as the script says.
+std::atomic<bool> s_scriptUsed{false}, s_scriptOn{false};
+std::atomic<int> s_scriptMode{-1};  // `gyro mode N`: Gyro Mode 0 (aiming only) or 1 (and the first-person look)
+std::atomic<float> s_scriptPitch{0}, s_scriptYaw{0};
 bool testActive(u64 frame, float* pitch, float* yaw) {
+    if (s_scriptOn) {
+        *pitch = s_scriptPitch, *yaw = s_scriptYaw;
+        return true;
+    }
     for (const TestSeg& t : testSegments())
         if (frame >= t.from && frame < t.from + t.frames) {
             *pitch = t.pitch, *yaw = t.yaw;
@@ -277,7 +288,7 @@ void gyroPoll(PADStatus& pad, u64 frame) {
         s_outActive = false;
         return;
     }
-    const bool enabled = !testSegments().empty() || bod::cvarInt("gSettings.Controls.Gyro.Enabled", 0) != 0;  // (a test run needs no menu)
+    const bool enabled = !testSegments().empty() || s_scriptUsed || bod::cvarInt("gSettings.Controls.Gyro.Enabled", 0) != 0;  // (a test run needs no menu)
     const double t = now();
     float testPitch = 0, testYaw = 0;
     const bool testing = testActive(frame, &testPitch, &testYaw);
@@ -305,10 +316,11 @@ void gyroPoll(PADStatus& pad, u64 frame) {
 
     // In which mode is the game? (only an aiming one takes the gyro; the first-person look when the setting says so)
     static const char* const s_testMode = std::getenv("BLUEWAKE_TEST_GYRO_MODE");
-    const int mode = s_testMode ? std::atoi(s_testMode) : bod::cvarInt("gSettings.Controls.Gyro.Mode", 0);
+    const int mode = s_scriptMode >= 0 ? s_scriptMode.load() : s_testMode ? std::atoi(s_testMode) : bod::cvarInt("gSettings.Controls.Gyro.Mode", 0);
     const u32 s0 = rd32(kStatus0), s1 = rd32(kStatus1);
     const bool aiming = (s0 & kAimItems0) || (s1 & kPictoBox1);
-    const bool active = aiming || (mode == 1 && (s0 & kFirstPerson));
+    // (sailing: the first-person look is the ship's, not the gyro's; the aiming items still are: the bow and boomerang work from the deck)
+    const bool active = aiming || (mode == 1 && (s0 & kFirstPerson) && !(s0 & kShipRide));
 
     float yawRate = 0, pitchRate = 0;  // deg/s
     bool have = false;
@@ -394,7 +406,9 @@ void gyroFrame() {
     const u32 link = rd32(kPlayerPtr), cam = rd32(kCameraPtr);
     if (!link || !cam) return;
     const u32 dc = cam + 0x244u;
-    if (!testSegments().empty() && s_n % 6 == 0)  // (test runs: what the game turns to; Link's shape_angle.y is a 16 bit angle)
+    const u32 s0 = rd32(kStatus0);
+    if (!(s0 & kRopeAim)) s_ropeRatio = 0;
+    if ((!testSegments().empty() || s_scriptUsed) && s_n % 6 == 0)  // (test runs: what the game turns to; Link's shape_angle.y is a 16 bit angle)
         log("[gyro-test] active %d status %08X stick %d rates pitch %.1f | link yaw %.1f deg, body pitch %.1f deg, subject %s ratio %.3f\n", int(active),
             rd32(kStatus0), s_lastIx.load(), pitch, double(s16(rd32(link + kShapeYaw - 2) & 0xFFFFu)) * 360.0 / 65536.0,
             double(s16(rd32(link + kBodyPitch) >> 16)) * 360.0 / 65536.0, rd32(dc + kSubjTag) == kSubjMagic ? "yes" : "no",
@@ -402,10 +416,29 @@ void gyroFrame() {
     if (!active || dt <= 0.f) return;
     // pitch: the subject camera's ratio, while it is the one running
     if (rd32(dc + kSubjTag) == kSubjMagic) {
-        float r = flt(rd32(dc + kSubjPitch)) + pitch * dt / kPitchRangeDeg;
-        r = std::clamp(r, -1.f, 1.f);
+        float r;
+        if (s0 & kRopeAim) {
+            // The Grappling Hook's camera style makes the ratio from Link's own body each frame (it is 0 again by the time
+            // this runs), so the ratio is not a thing to add to: the pitch is kept here, and written as the ratio Link's
+            // aim reads next frame (setBodyAngleToCamera), where the main stick's push is added on top, as the game does.
+            s_ropeRatio = std::clamp(s_ropeRatio + pitch * dt / kPitchRangeDeg, -1.f, 0.f);  // (Link's rope aim never points above level)
+            r = s_ropeRatio;
+        } else {
+            r = std::clamp(flt(rd32(dc + kSubjPitch)) + pitch * dt / kPitchRangeDeg, -1.f, 1.f);
+        }
         wr32(dc + kSubjPitch, bits32(r));
     }
+}
+
+void gyroTestMode(int mode) {
+    s_scriptMode = mode;
+    s_scriptUsed = true;
+}
+
+void gyroTestSet(float pitch, float yaw, bool on) {
+    s_scriptPitch = pitch, s_scriptYaw = yaw;
+    s_scriptUsed = true;
+    s_scriptOn = on;
 }
 
 }  // namespace bod
