@@ -33,8 +33,8 @@ press A 8
 wait 45
 press A 8
 wait 45
-wait noevent
-wait link
+# (no 'wait noevent' / 'wait link': riding the boat keeps the event mode set and is not 'playable' to the harness)
+wait 120
 wait 120
 shot r1
 wait 60
