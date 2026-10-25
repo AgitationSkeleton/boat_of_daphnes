@@ -151,7 +151,7 @@ DungeonState dungeon_state(const Save& s, int index) {
 // --- Cells ------------------------------------------------------------------------
 
 enum class K : uint8_t {
-    Blank, Slot, Sword, Shield, Bracelets, PirateCharm, HeroCharm, Wallet, BombBag, Quiver, Magic, Hearts, Pieces,
+    Blank, Slot, Sword, Shield, Bracelets, PirateCharm, HeroCharm, BunnyHood, Wallet, BombBag, Quiver, Magic, Hearts, Pieces,
     Pearl, Shard, Song, DKey, DBoss, DMap, DCompass,
 };
 
@@ -252,6 +252,11 @@ Look look_of(const Cell& c, const Save& s, const Options& o) {
         l.has = (s.u8(kCollect + 4) & 1) != 0;
         l.item = 0x43;
         l.tip = item_found::Name(0x43);
+        break;
+    case K::BunnyHood: // bit 2 of the Hero's Charm's byte (runtime/host/src/bunny_hood.h)
+        l.has = (s.u8(kCollect + 4) & 4) != 0;
+        l.item = 0x44;
+        l.tip = item_found::Name(0x44);
         break;
     case K::Wallet: {
         const unsigned size = std::min(s.u8(kWallet), 2u);
@@ -377,7 +382,7 @@ Cells equipment_cells() {
         return {{K::Sword, 0, false}, {K::Shield, 0, false}, {K::Bracelets, 0, false}, {K::HeroCharm, 0, false},
                 {K::PirateCharm, 0, false}};
     return {{K::Sword, 0, false}, {K::Shield, 0, false}, {K::Bracelets, 0, false}, {K::HeroCharm, 0, false},
-            {K::PirateCharm, 0, false}};
+            {K::BunnyHood, 0, false}, {K::PirateCharm, 0, false}};
 }
 
 Cells capacity_cells() {
@@ -873,7 +878,7 @@ void BuildMenu(shipmenu::Menu& m) {
     };
     const Section sections[] = {
         {"Inventory", "Inventory", "The item screen: telescope to Skull Hammer, three rows of seven."},
-        {"Equipment", "Equipment", "The sword, shield, Power Bracelets, Hero's Charm and Pirate's Charm."},
+        {"Equipment", "Equipment", "The sword, shield, Power Bracelets, Hero's Charm, Pirate's Charm and Bunny Hood."},
         {"Capacity", "Capacity", "The wallet, bomb bag, quiver, magic meter, heart containers and pieces of heart."},
         {"Dungeon Rewards", "DungeonRewards", "The three pearls and the eight Triforce shards."},
         {"Songs", "Songs", "The Wind Waker's six songs."},

@@ -53,6 +53,7 @@ These carry Wind Waker's data. The client defines them.
 | `SET_SWITCH` | team (`targetTeamId`) | `stage`, `room`, `no` (the switch), `on`, `seed` (the sender's randomizer seed, empty for the normal game; other seeds ignore it): a switch the sender's game set or cleared, applied live by teammates in the same place |
 | `CHAT` | room | `text` (at most a line; control characters removed) |
 | `REQUEST_TELEPORT` | one player | none |
+| `TELEPORT_REFUSED` | one player | `reason` (`hidden`): the answer of a player with Hide My Location on; an older build never sends it (it just does not answer) |
 | `TELEPORT_TO` | one player | `stage`, `room`, `point`, `pos`, `angle` |
 | `DAMAGE_PLAYER` | one player | `damage`, `effect` (reserved: the game does not send it yet) |
 | `PVP_HIT` | one player (`targetClientId` required; dropped while the room's `pvp` is `off`) | `damage` (the attacker's attack power), `hitType` (the game's attack type bits), `pos` (the attacker's place), `direction` ([x, z], from the attacker to the target) |
@@ -60,6 +61,17 @@ These carry Wind Waker's data. The client defines them.
 | `CARRY_POS` | one player (same rules, about 15 a second) | `pos`, `angle`, `phase` (`held`, or `thrown` while the arc flies): where the receiver's Link is held or flies; the receiver follows it with no input |
 | `CARRY_END` | one player (`targetClientId` required; always relayed, so a hold can always end) | `reason` (`put`, `thrown`, `refused`, `busy`, `breakfree`, `area`, `event`, `timeout`, `left`), `pos`, `angle` (where the receiver is let go; for a throw, where the arc landed), `hurt` (1: a thrown player takes a hit when PvP is On). Either side sends it: the carrier when they put down or throw, the carried player when they refuse or break free with a button |
 | `GAME_COMPLETE` | room | none (reserved: the game does not send it yet) |
+
+**Real-time items.** What the player gets travels at once: the game diffs the item regions (item slots, item-get and bag-get bits,
+collection, ammo maxima, max life, wallet, magic, charts) every frame, events included, and sends the gain as a `SYNC_SAVE` (and
+`ITEM_FOUND` for the toast); the receiver applies the item regions as soon as Link can take them (no event, no scene change,
+few frames in the stage) and holds them until then. Stage memories, ocean, event flags and keys keep the settled merge (a quiet
+second, no event). A change that was applied from a teammate is never sent again. No new message: older clients behave as before.
+
+**Hide My Location.** The client state carries `hidden` (bool). A receiver that knows it shows the player's area as Hidden, draws
+no Sea Chart marker and does not offer teleport; the owner answers `REQUEST_TELEPORT` with `TELEPORT_REFUSED` and sends no
+`CHART_UPDATE`. The stage stays in the state and the pose stream continues (players on the same stage still see each other); older
+clients ignore the field and show the area.
 
 **Team state.** `state` is the save's synced parts as [[offset, value], ...] (`runtime/host/src/team_sync.c`:
 max life, wallet, max magic, equipped sword/shield/bracelet, item slots except bottles, item-get bits,

@@ -1,0 +1,42 @@
+description Start Link on the King of Red Lions in open water (the ride command: the restart's last scene mode 6)
+# This save is mid-story: the arrival plays a short cutscene, A through it.
+timeout 400
+save 5-BombsEarly
+start load
+wait link
+ride sea 45 0
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+wait noevent
+wait link
+wait 120
+shot r1
+wait 60
+shot r2
+peek 0x803CA7F8/4 status0

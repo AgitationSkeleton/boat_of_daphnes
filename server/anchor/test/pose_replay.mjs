@@ -10,7 +10,7 @@
 //         left out is the game's own). Several mods give a mixed assortment: Young Link's body with Samus's equipment.
 //   env:  MATE_COLORS ("Hero.Tunic=ff0000,Hero.Hat=00ff00": the mate's Link colors, as a client shares them), MATE_COLORS2 and
 //         MATE_COLORS_AFTER (seconds after the game's first pose: the colors change to MATE_COLORS2, as a player does in the Cosmetics Editor),
-//         MATE_NAME (default "Mate"), MATE_DX / MATE_DZ (offset from Link, default 150 / 0), VOICE_PITCH,
+//         MATE_ROOM (the sea room the mate says it is in, default 44), MATE_NAME (default "Mate"), MATE_DX / MATE_DZ (offset from Link, default 150 / 0), VOICE_PITCH,
 //         MATE_OFFLINE_AFTER (seconds: the mate disconnects then, for the leave scenarios),
 //         MATE_LEGACY=1 (publish as an older client does: a plain manifest with only Link.arc),
 //         MATE_NOCOLORPACK=1 (a current client's manifest, but without the colour pack: the model's metadata and masks are not shared),
@@ -272,7 +272,7 @@ const dz = Number(process.env.MATE_DZ ?? 0);
 const ws = new WebSocket(`${base}/ws?room=${room}`);
 const frames = [];
 let t0 = 0, at = 0, latest = null;
-const state = () => ({ name: mateName, teamId: 'red', stage: 'sea', room: 44, isSaveLoaded: true, content, voicePitch: Number(process.env.VOICE_PITCH || 0),
+const state = () => ({ name: mateName, teamId: 'red', stage: 'sea', room: Number(process.env.MATE_ROOM || 44), isSaveLoaded: true, content, voicePitch: Number(process.env.VOICE_PITCH || 0),
   linkModel: mateParts && mateParts.link ? 1 : 0, linkColors: colors });
 let colors = process.env.MATE_COLORS || '';
 let colorsChanged = false;

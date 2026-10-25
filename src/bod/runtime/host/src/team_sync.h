@@ -1,6 +1,6 @@
 // Team sync (online play, docs/fork/PLAN.md N3): the parts of the save a team
 // shares, diffed every retrace on the game thread. What this player gained is
-// queued for the network; what a teammate gained is merged in at a safe point
+// queued for the network (item changes at once, even during an event); what a teammate gained is merged in at a safe point
 // (in play, no event running). Merges only ever add: bits are OR-ed, maxima
 // take the larger value, an item slot is filled when empty or upgraded.
 //
@@ -41,6 +41,9 @@ void bluewake_team_sync_enable(bool on);
 unsigned bluewake_team_sync_take(BluewakeSyncChange* out, unsigned capacity);
 // A teammate's changes, merged at the next safe point.
 void bluewake_team_sync_give(const BluewakeSyncChange* changes, unsigned count);
+// Whether a synced offset belongs to the item lane (applied and sent at once: inventory, item-get and collection bits,
+// maxima, charts) rather than the settled merge (stage memories, ocean, event flags, keys).
+bool bluewake_team_sync_is_item(uint16_t offset);
 // The synced bytes now, as (offset, value) pairs, for the team state; 0 when
 // no save is in play.
 unsigned bluewake_team_sync_snapshot(BluewakeSyncChange* out, unsigned capacity);

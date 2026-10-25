@@ -1,0 +1,19 @@
+description In-between frames on the pier where Link starts at Windfall (ripples and wave fans lap at it) (the ripples and wave fans are static, world-space geometry): logs where everything is on screen and dumps pictures, with and without the world-space blending (tools/interpimages.py)
+timeout 1500
+save 2-Pictobox
+size 640x360
+env SA2_INTERP_TEST 0.5
+env SA2_INTERP_STEPS 4
+env SA2_INTERP_JITTER interp_jitter.log
+env SA2_INTERP_DUMP_LABELS 1
+env SA2_INTERP_DUMP_BASE 1
+env SA2_DUMP_DIR jitter_dump
+env SA2_DUMP_MAX 6000
+start load
+wait link
+wait 120
+jitter ripples
+wait 500
+jitter off
+wait 1500
+shot after

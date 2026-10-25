@@ -1,0 +1,28 @@
+description In-between frames in rooms full of effects (Dragon Roost Cavern's fires and steam): standing still, camera pan, walking; logs where everything is on screen and dumps pictures (tools/interpjitter.py, tools/interpimages.py)
+timeout 2400
+save 2-Pictobox
+size 640x360
+env SA2_INTERP_TEST 0.5
+env SA2_INTERP_STEPS 4
+env SA2_INTERP_JITTER interp_jitter.log
+env SA2_INTERP_DUMP_LABELS 1,2
+env SA2_DUMP_DIR jitter_dump
+env SA2_DUMP_MAX 6000
+start load
+wait link
+warp M_NewD2 0 0
+wait link
+wait 120
+shot cave
+jitter still
+wait 500
+jitter off
+jitter pan
+cstick 100 0 300
+wait 300
+cstick -100 0 300
+wait 300
+cstick 0 0
+jitter off
+wait 1200
+shot end

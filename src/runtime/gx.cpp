@@ -50,6 +50,7 @@ void profileLogThreads(double hz);
 double viLastRetrace();  // src/runtime/hle_hw.cpp
 double s_frameStartVi = 0;  // the retrace that started the frame being built (gxFrameStarts)
 int s_staticVertices = 0;   // gxStaticVerticesEnter depth
+int s_trailVertices = 0;    // gxTrailVerticesEnter depth
 int s_heightField = 0;      // gxHeightFieldEnter depth
 u64 viRetraces();
 inline u64 viRetraceCount() { return viRetraces(); }
@@ -1189,6 +1190,11 @@ size_t command(const u8* p, size_t n, int depth) {
                     bool id = m + 11 < 0x100;
                     for (u32 q = 0; id && q < 12; q++) id = xff(m + q) == ((q == 0 || q == 5 || q == 10) ? 1.f : 0.f);
                     v.viewSpace = id;
+                    // (or through the camera's own matrix: positions in the world - the wake's and wave's, from the particles')
+                    bool cam = !id && m + 11 < 0x100;
+                    for (u32 q = 0; cam && q < 12; q++) cam = xff(m + q) == __builtin_bit_cast(float, rd32(kViewMtxAddr + 4 * q));
+                    v.worldSpace = cam;
+                    v.world = (id || cam) && s_trailVertices > 0 && s_staticVertices > 0 && !s_heightField && !s_draw2D;
                 }
                 s_frame->patches.push_back(v);
             }
@@ -1305,6 +1311,8 @@ void gxHeightFieldEnter() { s_heightField++, scopeEnter(); }
 void gxHeightFieldLeave() { s_heightField--, scopeLeave(true); }
 void gxStaticVerticesEnter() { s_staticVertices++, scopeEnter(); }
 void gxStaticVerticesLeave() { s_staticVertices--, scopeLeave(false); }
+void gxTrailVerticesEnter() { s_trailVertices++, gxStaticVerticesEnter(); }
+void gxTrailVerticesLeave() { gxStaticVerticesLeave(), s_trailVertices--; }
 
 void gxEndFrame() {
     gameFixesFrame();
@@ -1436,6 +1444,7 @@ void gxEndFrame() {
     for (auto& chunk : s_arena.chunks) f->snapshots.push_back(std::move(chunk));
     s_arena = {};
     f->index = s_frames;
+    f->jitter = g_interpJitter.load();
     {  // the main camera: the one most 3D position matrices were loaded under
         std::vector<u32> n(f->views.size(), 0);
         for (const GxPatch& p : f->patches)
@@ -1450,11 +1459,14 @@ void gxEndFrame() {
     // does (some of its timing follows the music clock, some the frame count; holding frames back
     // pulled them apart in cutscenes). Only when the renderer has fallen several frames behind
     // (a stall, a minimised window) is the game held, briefly, with the guest CPU released.
-    if (s_ready.size() >= 6) {
+    // (A test run logging in-between frames (SA2_INTERP_JITTER) holds the game for every frame: each is built and drawn in
+    // turn while the game's memory is as it was.)
+    const size_t holdAt = g_interpJitter ? 1 : 6;
+    if (s_ready.size() >= holdAt) {
         lk.unlock();
         sched::withCpuReleased([&] {
             std::unique_lock w(s_frameLock);
-            s_frameCv.wait_for(w, std::chrono::milliseconds(50), [] { return s_ready.size() < 6; });
+            s_frameCv.wait_for(w, std::chrono::milliseconds(g_interpJitter ? 3000 : 50), [&] { return s_ready.size() < holdAt; });
         });
         lk.lock();
     }

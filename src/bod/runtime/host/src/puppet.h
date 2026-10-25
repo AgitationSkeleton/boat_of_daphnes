@@ -15,6 +15,7 @@
 #define BLUEWAKE_PUPPET_H
 
 #include "core/cpu.h"
+#include "guest_coro.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -86,6 +87,12 @@ void bluewake_puppet_set_sounds(bool on);
 // Where the puppets' fast pool lies in a MEM1 array of this size (32 MB: the top of the dynamic REL window; 64 MB: everything
 // above 0x82000000); false when none.
 bool bluewake_puppet_fast_range(u32 ram_size, u32* base, u32* bytes);
+// A solid heap from the puppets' pools (guest memory outside the game's own heaps), made the current heap (the caller
+// restores it); 0 when there is no pool (puppets off, no room): the caller uses the game's heap. The Bunny Hood's models
+// use them so that a room of custom-model players does not leave the hood without room (and the game's heaps are the game's).
+u32 bluewake_puppet_pool_heap(GuestCoro* co, u32 size);
+// Destroys a heap made by it, or any other solid heap, with the pool's bookkeeping.
+void bluewake_puppet_pool_destroy(GuestCoro* co, u32 heap);
 // (app) An explosion of another player's bomb (one this PC made a harmless copy of) went off near me: whose, and where. True once per
 // blast. The app decides whether it hurts: only where the room's PvP rules say that player may hit me (anchor.cpp).
 bool bluewake_puppet_take_blast(int* player, float pos[3]);

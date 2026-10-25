@@ -73,19 +73,20 @@ HLE(draw__7JPADrawFPA4_f) {
 // Water effects drawn from their particles' positions (world space): the wave around a floating
 // boat (a fan through each wave particle), its wake, ripples. Particles come and go every frame, so
 // vertex i is not the same particle from one frame to the next - blended by index, the shape would
-// bend between unrelated points. Not blended: the camera's motion keeps them steady.
-#define TWW_STATIC_DRAW(name)                                   \
+// bend between unrelated points. Not blended by index: gxinterp.cpp pairs the points of one frame with the last frame's by where
+// they are in the world (the trail's points stay put as the boat moves on; the new end grows out of the old one's).
+#define TWW_TRAIL_DRAW(name)                                    \
     HLE(name) {                                                 \
         static const GuestFn s_orig = originalOf(#name);        \
-        gxStaticVerticesEnter();                                \
+        gxTrailVerticesEnter();                                 \
         s_orig(c);                                              \
-        gxStaticVerticesLeave();                                \
+        gxTrailVerticesLeave();                                 \
     }
-TWW_STATIC_DRAW(draw__17dPa_waveEcallBackFP14JPABaseEmitter)
-TWW_STATIC_DRAW(draw__18dPa_trackEcallBackFP14JPABaseEmitter)
-TWW_STATIC_DRAW(draw__19dPa_rippleEcallBackFP14JPABaseEmitter)
-TWW_STATIC_DRAW(draw__19dPa_ripplePcallBackFP14JPABaseEmitterP15JPABaseParticle)
-#undef TWW_STATIC_DRAW
+TWW_TRAIL_DRAW(draw__17dPa_waveEcallBackFP14JPABaseEmitter)
+TWW_TRAIL_DRAW(draw__18dPa_trackEcallBackFP14JPABaseEmitter)
+TWW_TRAIL_DRAW(draw__19dPa_rippleEcallBackFP14JPABaseEmitter)
+TWW_TRAIL_DRAW(draw__19dPa_ripplePcallBackFP14JPABaseEmitterP15JPABaseParticle)
+#undef TWW_TRAIL_DRAW
 // The sea (daSea, the open ocean's): a grid the game builds around the camera each frame, in world
 // space, snapped to its cells - when the camera moves on, vertex i is another point of the sea, so
 // it is not blended by index but as a height field: each point's height with the last frame's at the

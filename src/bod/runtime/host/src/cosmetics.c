@@ -77,6 +77,21 @@ enum {
     kEmitterEnv = 0x200u,
 };
 
+// The spin's big swirl (ROUNDATTACK00/01/02, d_a_player_main.cpp setP1 with static GXColors in .sdata2): the game hands the
+// emitters pointers to these, so the host rewrites the data. Each of the three sword variants has a dark prm0, a light prm1
+// and an env colour; the chosen colour is scaled to the same three levels (percent).
+typedef struct SpinSwirl {
+    u32 address;
+    u32 vanilla; // RRGGBBAA
+    u32 percent;
+} SpinSwirl;
+
+static const SpinSwirl kSpinSwirl[] = {
+    {0x803FA544u, 0x406040FFu, 30u}, {0x803FA548u, 0xDCE6DCFFu, 90u}, {0x803FA54Cu, 0xA0E6A0FFu, 65u}, // n_turn: prm0, prm1, env
+    {0x803FA550u, 0x404060FFu, 30u}, {0x803FA554u, 0xDCDCE6FFu, 90u}, {0x803FA558u, 0xA0A0E6FFu, 65u}, // nm_turn
+    {0x803FA55Cu, 0x4040FFFFu, 30u}, {0x803FA560u, 0xDCDCFFFFu, 90u}, {0x803FA564u, 0x7878FFFFu, 65u}, // fm_turn
+};
+
 static bool guest_pointer(u32 p) { return p >= 0x80000000u && p < 0x81800000u; }
 
 static void paint_emitter(CPUState* cpu, u32 emitter, const uint8_t rgba[4], bool env_dim) {
@@ -110,6 +125,18 @@ void bluewake_cosmetics_retrace(CPUState* cpu) {
     if (cpu == NULL || cpu->ram == NULL)
         return;
     spin_effects(cpu);
+    {
+        uint8_t rgba[4];
+        const bool on = bluewake_cosmetics_get("Trails.SpinAttack", rgba);
+        for (unsigned i = 0; i < sizeof kSpinSwirl / sizeof kSpinSwirl[0]; ++i) {
+            u32 value = kSpinSwirl[i].vanilla;
+            if (on)
+                value = ((u32)(rgba[0] * kSpinSwirl[i].percent / 100u) << 24) | ((u32)(rgba[1] * kSpinSwirl[i].percent / 100u) << 16) |
+                        ((u32)(rgba[2] * kSpinSwirl[i].percent / 100u) << 8) | 0xFFu;
+            if (mem_read32(cpu, kSpinSwirl[i].address) != value)
+                mem_write32(cpu, kSpinSwirl[i].address, value);
+        }
+    }
     for (unsigned i = 0; i < sizeof kTrails / sizeof kTrails[0]; ++i) {
         uint8_t rgba[4];
         u32 value = kTrails[i].vanilla;

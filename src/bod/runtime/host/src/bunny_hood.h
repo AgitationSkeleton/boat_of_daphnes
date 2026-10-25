@@ -29,8 +29,9 @@ extern "C" {
 #define BLUEWAKE_BUNNY_HOOK_SPEED 71u     // daPy_lk_c::checkNextMode, after mMaxNormalSpeed is chosen
 #define BLUEWAKE_BUNNY_HOOK_MENU 72u      // dMenu_Collect_c::_move, entry
 #define BLUEWAKE_BUNNY_HOOK_MENU_END 73u  // dMenu_Collect_c::_delete, entry
+#define BLUEWAKE_BUNNY_HOOK_MASK 74u      // daPy_lk_c::checkMaskDraw, entry: the charm's mask on Link
 #define BLUEWAKE_BUNNY_HOOK_FIRST 70u
-#define BLUEWAKE_BUNNY_HOOK_LAST 73u
+#define BLUEWAKE_BUNNY_HOOK_LAST 74u
 
 // The experimental switch (CVar gExperimental.BunnyHood, set by the app): off, the hood does nothing at all, as if the
 // code were not there: the hooks return at once, no item rows or messages are touched, nothing is drawn or sent.
@@ -55,6 +56,7 @@ void bluewake_bunny_hood_draw_for(GuestCoro* co, int slot, const float* link_nod
 // bit (hook 70). Asynchronous: done by the draw hook's fiber a frame or two later. False when the hood is off or no scene is up.
 bool bluewake_bunny_hood_give(void);
 bool bluewake_bunny_hood_give_item(unsigned item);  // Testing: any field item, given the same way
+bool bluewake_dev_get_item(unsigned item);
 // The hood is worn on the local player now (Anchor sends this flag in the puppet pose).
 bool bluewake_bunny_hood_worn(void);
 // Team sync: the collect byte as it really is (while the pause screen shows the hood in the charm's bits, the screen's

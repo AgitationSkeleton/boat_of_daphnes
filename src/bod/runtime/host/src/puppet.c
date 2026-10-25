@@ -2441,6 +2441,9 @@ static u32 create_puppet_heap(GuestCoro* co, const u32* want, int n, u32* size) 
     return heap;
 }
 
+u32 bluewake_puppet_pool_heap(GuestCoro* co, u32 size) { return pool_solid_heap(co, size); }
+void bluewake_puppet_pool_destroy(GuestCoro* co, u32 heap) { destroy_puppet_heap(co, heap); }
+
 static uint64_t fnv64(const uint8_t* p, size_t n) {
     uint64_t h = 0xCBF29CE484222325ull;
     for (size_t i = 0; i < n; ++i)

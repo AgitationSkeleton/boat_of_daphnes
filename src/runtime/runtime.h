@@ -31,6 +31,7 @@ void gameFixesLinked(u32 module);
 void gameFixesUnlinked(u32 module);
 void gameFixesInit();   // main.dol changes (src/runtime/tww.cpp), at startup
 void gameFixesFrame();  // ... and their per-frame part, on the game thread
+extern std::atomic<bool> g_wideCulling, g_wideHud;  // Widescreen Actor Culling and HUD at the Screen Edges (bod_gameopts)
 extern std::atomic<float> g_wideAspect;  // the window's aspect when widescreen is on, else 4:3 (frontend)
 void twwWideFrame();                       // the widescreen code, per frame (src/runtime/twwwide.cpp)
 extern std::atomic<float> g_wideExtra;  // logical units shown beyond each side of the 4:3 screen (frontend)

@@ -330,6 +330,13 @@ static void gl_debug_tick(GbaLink* g) {
                 g->core->busRead32(g->core, 0x04000154), g->core->busRead32(g->core, 0x04000150));
     const char* dump = getenv("BLUEWAKE_GBA_DUMP");
     if (dump) {
+        /* A "%u" in the name numbers the dumps (one per call, twice a guest second). */
+        char numbered[1024];
+        static unsigned dump_count;
+        if (strstr(dump, "%u") != NULL) {
+            snprintf(numbered, sizeof numbered, dump, dump_count++);
+            dump = numbered;
+        }
         FILE* f = fopen(dump, "wb");
         if (f) {
             fprintf(f, "P6\n240 160\n255\n");

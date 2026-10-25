@@ -21,6 +21,8 @@ enum {
     COLLECT4_SYNC = 0x05u,    // only ownership travels: wearing is personal
     QUIET_RETRACES = 60,      // no event for this long before a teammate's state is merged
     STABLE_RETRACES = 30,     // the stage must hold this long before its live copy counts
+    FAST_STABLE_RETRACES = 6, // items: Link must be in the same stage this long (a scene change's half-loaded frames)
+    NEXT_STAGE_GO = 0x803C9D48u + 0xCu, // play.mNextStage enable: a scene change is about to happen
 };
 
 typedef enum { MERGE_OR, MERGE_MAX, MERGE_SLOT } Merge;
@@ -94,6 +96,12 @@ static const Region* region_of(uint16_t offset) {
     return NULL;
 }
 
+// The item lane: what Link carries (inventory, item-get and collection bits, maxima, charts) travels at once, as soon as
+// the save changes, and is applied when the player can take it (no event, no scene change). Stage memories, the ocean and
+// the event flags, which can start cutscenes, and the keys keep the slow path (merged in a settled place).
+static bool is_item_region(const Region* r) { return r != NULL && r->offset < MEMORY; }
+bool bluewake_team_sync_is_item(uint16_t offset) { return is_item_region(region_of(offset)); }
+
 static bool is_bottle_slot(uint16_t offset) { return offset >= 0x03C + 14 && offset <= 0x03C + 17; }
 
 // An item slot's upgrades: the Picto Box to the Deluxe one; the Bow to the Bow with
@@ -128,14 +136,6 @@ static bool improves(const Region* r, uint16_t offset, uint8_t mine, uint8_t the
         return slot_rank(offset, theirs) > slot_rank(offset, mine);
     }
     return false;
-}
-
-static bool safe_point(CPUState* cpu) {
-    if (cpu == NULL || cpu->ram == NULL)
-        return false;
-    if (mem_read8(cpu, STAGE_NAME) == 0u)
-        return false; // no stage yet (boot, title)
-    return mem_read8(cpu, EVENT_MODE) == 0u;
 }
 
 // The save table of the stage in play, once it has held for a while with
@@ -220,25 +220,76 @@ void bluewake_team_sync_enable(bool on) {
 }
 
 static int g_quiet; // retraces since an event last ran
+static u32 g_fast_player;
+static char g_fast_stage[8];
+static int g_fast_for; // retraces Link has been in the same stage
+
+// Our own gains in the regions of the item lane (`items_only`) or in all of them.
+static void diff_own(CPUState* cpu, bool items_only) {
+    for (unsigned k = 0; k < sizeof kRegions / sizeof kRegions[0]; ++k) {
+        const Region* r = &kRegions[k];
+        if (items_only && !is_item_region(r))
+            continue;
+        for (uint16_t o = r->offset; o < r->offset + r->size; ++o) {
+            if (region_of(o) != r)
+                continue; // a key count or padding inside the stage memories
+            const uint8_t now = effective(cpu, o);
+            if (!g_have_shadow) {
+                g_shadow[o] = now;
+                continue;
+            }
+            if (now == g_shadow[o])
+                continue;
+            uint8_t merged;
+            if (improves(r, o, g_shadow[o], now, &merged) && g_out_count < QUEUE)
+                g_out[g_out_count++] = (BluewakeSyncChange){o, r->merge == MERGE_OR ? (uint8_t)(now & ~g_shadow[o]) : now};
+            g_shadow[o] = now;
+        }
+    }
+}
 
 void bluewake_team_sync_retrace(CPUState* cpu) {
     if (!atomic_load(&g_enabled))
         return;
-    if (cpu != NULL && cpu->ram != NULL && mem_read8(cpu, EVENT_MODE) != 0u)
+    if (cpu == NULL || cpu->ram == NULL)
+        return;
+    const bool event = mem_read8(cpu, EVENT_MODE) != 0u;
+    if (event)
         g_quiet = 0;
     else if (g_quiet < QUIET_RETRACES)
         ++g_quiet;
-    if (!safe_point(cpu))
-        return;
+    if (mem_read8(cpu, STAGE_NAME) == 0u)
+        return; // no stage yet (boot, title)
+    // The item lane's gate: Link has been in this stage for a few frames and no scene change is pending.
+    char stage[8];
+    for (unsigned i = 0; i < sizeof stage; ++i)
+        stage[i] = (char)mem_read8(cpu, STAGE_NAME + i);
+    const u32 player_now = mem_read32(cpu, PLAYER);
+    if (player_now == 0u || player_now != g_fast_player || memcmp(stage, g_fast_stage, sizeof stage) != 0 ||
+        mem_read8(cpu, NEXT_STAGE_GO) != 0u)
+        g_fast_for = 0;
+    else if (g_fast_for < FAST_STABLE_RETRACES)
+        ++g_fast_for;
+    g_fast_player = player_now;
+    memcpy(g_fast_stage, stage, sizeof stage);
+    const bool item_ready = !event && g_fast_for >= FAST_STABLE_RETRACES;
     lock();
-    track_live_table(cpu);
+    if (!event)
+        track_live_table(cpu);
     // A teammate's state is merged only in a settled place: the stage held for a while and no event for a while.
     // Flags written while a scene is loading or just after a cutscene could start one again (event 238 at the pirate
-    // ship looped on a merge, 2026-10-19); the changes wait in the queue.
-    const bool settled = g_live_table >= 0 && g_quiet >= QUIET_RETRACES;
+    // ship looped on a merge, 2026-10-19); the changes wait in the queue. Item changes do not wait for that: they
+    // are applied at once when the player can take them (item_ready), and held through events and scene changes.
+    const bool settled = !event && g_live_table >= 0 && g_quiet >= QUIET_RETRACES;
     // A teammate's gains first, so they are not taken for ours.
-    for (unsigned i = 0; i < g_in_count && g_have_shadow && settled; ++i) {
+    unsigned kept = 0;
+    for (unsigned i = 0; i < g_in_count; ++i) {
         const BluewakeSyncChange c = g_in[i];
+        const bool item = is_item_region(region_of(c.offset));
+        if (!g_have_shadow || !(item ? item_ready : settled)) {
+            g_in[kept++] = c; // not yet: held
+            continue;
+        }
         if (c.offset >= KEY_DELTA && c.offset < KEY_DELTA + STAGES) {
             const unsigned t = c.offset - KEY_DELTA;
             int n = key_count(cpu, t) + (int)(int8_t)c.value;
@@ -260,38 +311,26 @@ void bluewake_team_sync_retrace(CPUState* cpu) {
         uint8_t merged;
         if (improves(r, c.offset, mine, theirs, &merged)) {
             write_merged(cpu, c.offset, merged);
-            fprintf(stderr, "[sync] in 0x%03X: %02X -> %02X\n", c.offset, mine, merged);
+            fprintf(stderr, "[sync] in%s 0x%03X: %02X -> %02X\n", item ? " (item)" : "", c.offset, mine, merged);
         }
-        g_shadow[c.offset] = effective(cpu, c.offset);
+        g_shadow[c.offset] = effective(cpu, c.offset); // taken in as seen: never sent back
     }
-    if (g_have_shadow && settled)
-        g_in_count = 0;
-    // Our own gains since the last look.
-    for (unsigned k = 0; k < sizeof kRegions / sizeof kRegions[0]; ++k) {
-        const Region* r = &kRegions[k];
-        for (uint16_t o = r->offset; o < r->offset + r->size; ++o) {
-            if (region_of(o) != r)
-                continue; // a key count or padding inside the stage memories
-            const uint8_t now = effective(cpu, o);
-            if (!g_have_shadow) {
-                g_shadow[o] = now;
-                continue;
-            }
-            if (now == g_shadow[o])
-                continue;
-            uint8_t merged;
-            if (improves(r, o, g_shadow[o], now, &merged) && g_out_count < QUEUE)
-                g_out[g_out_count++] = (BluewakeSyncChange){o, r->merge == MERGE_OR ? (uint8_t)(now & ~g_shadow[o]) : now};
-            g_shadow[o] = now;
+    g_in_count = kept;
+    // Our own gains since the last look. The item lane is looked at every frame, events included (an item is in the
+    // save while its cutscene still runs); the rest only in a calm moment.
+    if (!event)
+        diff_own(cpu, false);
+    else if (g_have_shadow)
+        diff_own(cpu, true);
+    if (!event) {
+        for (unsigned t = 0; t < STAGES; ++t) {
+            const uint8_t now = key_count(cpu, t);
+            if (g_have_shadow && now != g_key_shadow[t] && g_out_count < QUEUE)
+                g_out[g_out_count++] = (BluewakeSyncChange){(uint16_t)(KEY_DELTA + t), (uint8_t)(int8_t)(now - g_key_shadow[t])};
+            g_key_shadow[t] = now;
         }
+        g_have_shadow = true;
     }
-    for (unsigned t = 0; t < STAGES; ++t) {
-        const uint8_t now = key_count(cpu, t);
-        if (g_have_shadow && now != g_key_shadow[t] && g_out_count < QUEUE)
-            g_out[g_out_count++] = (BluewakeSyncChange){(uint16_t)(KEY_DELTA + t), (uint8_t)(int8_t)(now - g_key_shadow[t])};
-        g_key_shadow[t] = now;
-    }
-    g_have_shadow = true;
     unlock();
 }
 

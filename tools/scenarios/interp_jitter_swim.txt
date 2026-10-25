@@ -1,0 +1,30 @@
+description In-between frames while Link swims across open water (ripples, wake, splash): logs where everything is on screen and dumps pictures (tools/interpjitter.py, tools/interpimages.py)
+timeout 2400
+save 2-Pictobox
+size 640x360
+env SA2_INTERP_TEST 0.5
+env SA2_INTERP_STEPS 4
+env SA2_INTERP_JITTER interp_jitter.log
+env SA2_INTERP_DUMP_LABELS 1,2
+env SA2_DUMP_DIR jitter_dump
+env SA2_DUMP_MAX 6000
+env SA2_INTERP_DUMP_BASE 1
+start load
+wait link
+teleport sea 11 -2192 6 -202315 0
+wait link
+wait 60
+stick 0 100 120
+wait 120
+jitter swim
+stick 0 100 400
+wait 400
+jitter off
+jitter swim_turn
+stick 100 100 300
+wait 300
+stick -100 100 300
+wait 300
+jitter off
+wait 2500
+shot end

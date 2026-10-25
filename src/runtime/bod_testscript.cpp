@@ -9,6 +9,7 @@
 // (60 a second, the game runs 30 frames a second on them), counted from the start of the command, so a script is
 // the same whatever time the loading takes.
 #include "runtime/bod_bridge.h"
+#include "runtime/gx.h"
 
 #include "../bod/shim/bod_compat.h"
 
@@ -266,6 +267,13 @@ bool runCommand(const Command& c, bool first, u64 since) {
         log("%s", m.c_str());
         return true;
     }
+    if (v == "jitter") {
+        // jitter NAME | off: from here the in-between frames' screen positions are logged (SA2_INTERP_JITTER, tools/interpjitter.py)
+        static int s_n = 0;
+        if (a.empty() || a[0] == "off") rt::g_interpJitter = 0;
+        else rt::g_interpJitter = ++s_n, log("jitter %d %s", s_n, a[0].c_str());
+        return true;
+    }
     if (v == "quit" || v == "end") {
         log("quit at retrace %llu", (unsigned long long)t);
         S.finished = true;
@@ -314,7 +322,9 @@ bool runCommand(const Command& c, bool first, u64 since) {
         return false;
     }
     // ---- everything below changes the game or looks at it ----
-    if (v == "warp") {
+    if (v == "warp" || v == "ride") {
+        // ride STAGE ROOM [POINT [LAYER [WIPE]]]: the same, but Link arrives on the King of Red Lions (the restart's last scene mode 6,
+        // as the ship's own crossings leave it; needs MET_KORL and a sea stage).
         // warp STAGE ROOM [POINT [LAYER [WIPE]]]: a scene change as a door makes one. Waits for the scene it leaves to be
         // playable, asks, checks the game took it up (asks again if not) and waits for the new scene.
         if (a.size() < 2) return log("line %d: warp STAGE ROOM [POINT [LAYER]]", c.line), true;
@@ -322,6 +332,7 @@ bool runCommand(const Command& c, bool first, u64 since) {
         if (S.phase == 0) {
             if (!safe && !timedOut(3600, "no playable moment to warp from")) return false;
             if (elapsed >= 3600) return true;
+            if (v == "ride") mem_write32(cpu(), 0x803C4C08u + 0x1128u + 0x2Cu, 6);
             writeStage(a[0], room, point, layer, wipe);
             log("warp %s room %d point %d layer %d (from %s room %d)", a[0].c_str(), room, point, layer, stageName().c_str(), loc.room);
             S.phase = 1, S.phase_at = t, S.tries = 1;
@@ -490,6 +501,11 @@ bool runCommand(const Command& c, bool first, u64 since) {
     if (v == "reveal") {  // reveal 0|1: Reveal Sea Chart
         bluewake_chart_reveal_enable(num(a, 0, 1) != 0);
         log("reveal sea chart %s", num(a, 0, 1) ? "on" : "off");
+        return true;
+    }
+    if (v == "getitem") {  // getitem N: Link picks up item N and holds it up (the bunny hood feature must be on)
+        const bool ok = bluewake_dev_get_item(unsigned(num(a, 0, 0x44)));
+        log("getitem %s", ok ? "requested" : "refused (bunny 1 first)");
         return true;
     }
     if (v == "bunny") {  // bunny 0|1: the Bunny Hood feature
