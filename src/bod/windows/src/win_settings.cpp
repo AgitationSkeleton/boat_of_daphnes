@@ -1170,7 +1170,7 @@ void build_settings() {
     m.AddWidget(H, "Controls", 1, "Gyro Is Used In", WidgetType::CVarCombobox)
         .CVar(CVAR_SETTING("Controls.Gyro.Mode"))
         .Items({"Aiming Only", "Aiming and First-Person Look"})
-        .DefaultValue(0)
+        .DefaultValue(1)
         .Tooltip("Aiming Only: the bow, hookshot, grappling hook, boomerang, telescope and Picto Box.\n"
                  "Aiming and First-Person Look: also the plain first-person view (C-Stick up).")
         .PreFunc(gyro_off);

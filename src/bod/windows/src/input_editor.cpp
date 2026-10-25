@@ -112,6 +112,21 @@ void poll_capture() {
     const unsigned port = g_capture.port;
     if (g_capture.kind == Kind::Button) {
         const s32 pressed = PADGetNativeButtonPressed(port);
+        // L and R are the GameCube's triggers: on Switch-style pads (ZL/ZR) and others the big triggers are axes, not
+        // buttons, so a pull while L or R is being bound binds that axis to the GameCube trigger (its digital click follows
+        // the trigger's activation zone, as with the default mapping).
+        if (pressed < 0 && (g_capture.index == PAD_TRIGGER_L || g_capture.index == PAD_TRIGGER_R)) {
+            const PADSignedNativeAxis pulled = PADGetNativeAxisPulled(port);
+            if (pulled.nativeAxis >= 0) {
+                const PADAxis axis = g_capture.index == PAD_TRIGGER_L ? PAD_AXIS_TRIGGER_L : PAD_AXIS_TRIGGER_R;
+                PADSetAxisMapping(port, PADAxisMapping{pulled, SDL_GAMEPAD_BUTTON_INVALID, axis});
+                std::fprintf(stderr, "[input] port %u: %s bound to controller axis %s (trigger)\n", port + 1,
+                             PADGetButtonName(static_cast<PADButton>(g_capture.index)), PADGetNativeAxisName(pulled));
+                g_capture = {};
+                save_mappings();
+                return;
+            }
+        }
         if (pressed >= 0) {
             PADSetButtonMapping(port, PADButtonMapping{static_cast<u32>(pressed), static_cast<PADButton>(g_capture.index)});
             std::fprintf(stderr, "[input] port %u: %s bound to controller button %s\n", port + 1,

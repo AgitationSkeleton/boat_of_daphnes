@@ -316,7 +316,7 @@ void gyroPoll(PADStatus& pad, u64 frame) {
 
     // In which mode is the game? (only an aiming one takes the gyro; the first-person look when the setting says so)
     static const char* const s_testMode = std::getenv("BLUEWAKE_TEST_GYRO_MODE");
-    const int mode = s_scriptMode >= 0 ? s_scriptMode.load() : s_testMode ? std::atoi(s_testMode) : bod::cvarInt("gSettings.Controls.Gyro.Mode", 0);
+    const int mode = s_scriptMode >= 0 ? s_scriptMode.load() : s_testMode ? std::atoi(s_testMode) : bod::cvarInt("gSettings.Controls.Gyro.Mode", 1);
     const u32 s0 = rd32(kStatus0), s1 = rd32(kStatus1);
     const bool aiming = (s0 & kAimItems0) || (s1 & kPictoBox1);
     // (sailing: the first-person look is the ship's, not the gyro's; the aiming items still are: the bow and boomerang work from the deck)
