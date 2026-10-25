@@ -9,6 +9,7 @@
 // (60 a second, the game runs 30 frames a second on them), counted from the start of the command, so a script is
 // the same whatever time the loading takes.
 #include "runtime/bod_bridge.h"
+#include "runtime/gx.h"
 
 #include "../bod/shim/bod_compat.h"
 
@@ -265,6 +266,13 @@ bool runCommand(const Command& c, bool first, u64 since) {
         log("%s", m.c_str());
         return true;
     }
+    if (v == "jitter") {
+        // jitter NAME | off: from here the in-between frames' screen positions are logged (SA2_INTERP_JITTER, tools/interpjitter.py)
+        static int s_n = 0;
+        if (a.empty() || a[0] == "off") rt::g_interpJitter = 0;
+        else rt::g_interpJitter = ++s_n, log("jitter %d %s", s_n, a[0].c_str());
+        return true;
+    }
     if (v == "quit" || v == "end") {
         log("quit at retrace %llu", (unsigned long long)t);
         S.finished = true;
@@ -456,6 +464,11 @@ bool runCommand(const Command& c, bool first, u64 since) {
     if (v == "reveal") {  // reveal 0|1: Reveal Sea Chart
         bluewake_chart_reveal_enable(num(a, 0, 1) != 0);
         log("reveal sea chart %s", num(a, 0, 1) ? "on" : "off");
+        return true;
+    }
+    if (v == "getitem") {  // getitem N: Link picks up item N and holds it up (the bunny hood feature must be on)
+        const bool ok = bluewake_dev_get_item(unsigned(num(a, 0, 0x44)));
+        log("getitem %s", ok ? "requested" : "refused (bunny 1 first)");
         return true;
     }
     if (v == "bunny") {  // bunny 0|1: the Bunny Hood feature

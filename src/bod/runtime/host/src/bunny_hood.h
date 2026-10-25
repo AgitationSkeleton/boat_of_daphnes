@@ -55,6 +55,7 @@ void bluewake_bunny_hood_draw_for(GuestCoro* co, int slot, const float* link_nod
 // get-item state, so Link holds the item up (its model) with the acquisition text, and execItemGet(0x44) then sets the owned
 // bit (hook 70). Asynchronous: done by the draw hook's fiber a frame or two later. False when the hood is off or no scene is up.
 bool bluewake_bunny_hood_give(void);
+bool bluewake_dev_get_item(unsigned item);
 // The hood is worn on the local player now (Anchor sends this flag in the puppet pose).
 bool bluewake_bunny_hood_worn(void);
 // Team sync: the collect byte as it really is (while the pause screen shows the hood in the charm's bits, the screen's

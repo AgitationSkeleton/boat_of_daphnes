@@ -3,6 +3,7 @@
 #include "runtime/ctx.h"
 
 #include <array>
+#include <atomic>
 #include <memory>
 #include <vector>
 
@@ -38,6 +39,9 @@ struct GxPatch {
     u32 occ = 0;       // which copy of that part the object drew (copies pair by position)
     s16 view = -1;     // PosMtx, Vertex: the camera (GxFrame::views) set when it was loaded / drawn
     bool viewSpace = false;  // Vertex: drawn through an identity matrix - positions in the camera's space
+    bool worldSpace = false; // Vertex: drawn through the camera's own matrix - positions in the world (with `world`: see below)
+    bool world = false;      // Vertex: positions (in the camera's space, or the world's: worldSpace) of things that stand in the world (a wake, ripples: geometry
+                             // the CPU rebuilds each frame from particles) - not paired by index, see gxinterp.cpp
     bool height = false;     // Vertex/Array: a height field (the sea): blended by world x, z, not by index
 };
 struct GxFrame {
@@ -52,6 +56,7 @@ struct GxFrame {
     // camera's view from this one, so it stays put in the world while the camera moves.
     std::vector<std::array<float, 12>> views;
     int mainView = -1;
+    int jitter = 0;     // a test run (SA2_INTERP_JITTER): the label the script had set when the frame was made
 };
 // Render thread: the frames finished since the last call, oldest first. Waits up to waitMs for one
 // when there are none.
@@ -69,6 +74,11 @@ constexpr u32 kTaskFnVar = 0;
 void gxFrameStarts();
 // The game thread: vertices sent with draws and vertex arrays within this are not blended (geometry
 // rebuilt every frame that stays put: the ground polygons a shadow is cast onto). Nests.
+// A trail or fan of world positions the game rebuilds from its particles each frame (the wake behind the boat, the wave around it,
+// ripples): the points of one frame are the last frame's, shifted along, with new ones at one end - they follow it as it moves.
+// (Static as above, and blended in the world, src/runtime/gxinterp.cpp.)
+void gxTrailVerticesEnter();
+void gxTrailVerticesLeave();
 void gxStaticVerticesEnter();
 void gxStaticVerticesLeave();
 // ... and within this they are a height field (the sea: a grid that scrolls with the camera): each
@@ -81,12 +91,15 @@ void gxInterpPush(std::shared_ptr<GxFrame> f);  // a new game frame (paired with
 void gxInterpReset();
 const GxFrame* gxInterpNewest();
 double gxInterpNewestTime();  // when the newest frame is shown (its retrace)
+double gxInterpNewestStep();  // the time from the frame before the newest to the newest
 double gxInterpDelay();       // how far behind the display runs (a frame, and the slowest recent frame's work)
 double gxInterpShowTime(double now);  // the time to show at `now` (that far behind, moving smoothly)
 // The commands to draw at `when` (GxFrame::time's clock; a frame is due one frame after the game
 // finished it): the frame due then, its moving values blended from the one before. Blended vertex
 // arrays are added to `keep` (alive until Aurora has used them). nullptr: no frames yet.
 std::shared_ptr<GxFrame> gxInterpBuild(double when, std::vector<u8>& out, std::vector<std::unique_ptr<u8[]>>& keep, float* shownT);
+extern std::atomic<bool> g_interpBaseline;  // test runs: build without the newer treatments (a before/after in one run)
+extern std::atomic<int> g_interpJitter;  // test runs: log in-between frames' screen positions under this label (0: off)
 double gxNow();  // GxFrame::time's clock
 
 // While set (co-op, around one object's drawing: src/runtime/coopcolour.cpp), each texture loaded for

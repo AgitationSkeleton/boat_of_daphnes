@@ -286,6 +286,7 @@ struct EfbDump {
     std::string path;
 };
 EfbDump s_efbDumps[4];
+std::atomic<int> s_efbPending{0};  // dumps pushed, not yet written (a test run waits for them)
 u32 s_efbDumpNext = 0;
 aurora::gfx::EncoderTaskId s_efbTask = aurora::gfx::InvalidEncoderTask;
 
@@ -321,6 +322,7 @@ void efbWriteTask(const aurora::gfx::EncoderTaskCompletionContext&, const void* 
     }
     d.buf = {};
     d.tex = {};
+    s_efbPending--;
 }
 
 void dumpEfb(const std::string& path) {
@@ -345,6 +347,7 @@ void dumpEfb(const std::string& path) {
     d.bpr = (d.w * 4 + 255) & ~255u;
     d.bgra = rt.colorFormat == wgpu::TextureFormat::BGRA8Unorm || rt.colorFormat == wgpu::TextureFormat::BGRA8UnormSrgb;
     d.path = path;
+    s_efbPending++;
     aurora::gfx::push_encoder_task(s_efbTask, &idx, sizeof idx);
 }
 
@@ -690,6 +693,46 @@ int runFrontend(int argc, char** argv, bool headless, u64 maxFrames, void (*star
                 }
             }
             gxInterpPush(f);
+            if (interpTest >= 0 && f->jitter) {  // SA2_INTERP_JITTER: the screen positions of every in-between step (and pictures), of every game frame
+                static const std::string s_jlStr = std::string(",") + (std::getenv("SA2_INTERP_DUMP_LABELS") ? std::getenv("SA2_INTERP_DUMP_LABELS") : "") + ",";
+                static const char* s_jl = s_jlStr.c_str();
+                static const bool s_jBase = std::getenv("SA2_INTERP_DUMP_BASE") != nullptr;  // (also the builds without the newer treatments)
+                static const int s_jn = std::getenv("SA2_INTERP_STEPS") ? std::max(1, std::atoi(std::getenv("SA2_INTERP_STEPS"))) : 4;
+                aurora_texture_memo_reset();
+                // The first picture drawn after a new game frame is sometimes left half drawn (its textures are still being made):
+                // one is drawn first and not kept.
+                if (dumpDir && std::strstr(s_jl, (std::string(",") + std::to_string(f->jitter) + ",").c_str())) {
+                    keep[kb].clear();
+                    float got = 1.f;
+                    held[kb] = gxInterpBuild(gxInterpNewestTime() - gxInterpNewestStep(), frame, keep[kb], &got);
+                    if (held[kb] && aurora_begin_frame()) {
+                        kb ^= 1;
+                        aurora::gx::fifo::write_data(frame.data(), u32(frame.size()));
+                        aurora_end_frame();
+                        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+                    }
+                }
+                for (int i = 0; i < s_jn; i++)
+                    for (const bool baseline : {true, false}) {  // (labels + 1000: without the newer treatments)
+                        g_interpBaseline = baseline;
+                        keep[kb].clear();
+                        float got = 1.f;
+                        held[kb] = gxInterpBuild(gxInterpNewestTime() - (1.0 - double(i) / s_jn) * gxInterpNewestStep(), frame, keep[kb], &got);
+                        // SA2_INTERP_DUMP_LABELS=1,3: those labels' builds are also drawn and dumped (tools/interpimages.py reads them)
+                        if (dumpDir && held[kb] && (!baseline || s_jBase) && std::strstr(s_jl, (std::string(",") + std::to_string(f->jitter) + ",").c_str()) &&
+                            aurora_begin_frame()) {
+                            kb ^= 1;
+                            aurora::gx::fifo::write_data(frame.data(), u32(frame.size()));
+                            char path[512];
+                            std::snprintf(path, sizeof path, "%s/j%02d_%05llu_%d%c.rgba", dumpDir, f->jitter, (unsigned long long)held[kb ^ 1]->index, i,
+                                          baseline ? 'b' : 'n');
+                            dumpEfb(path);
+                            aurora_end_frame();
+                            for (int w = 0; w < 4000 && s_efbPending > 0; w++) std::this_thread::sleep_for(std::chrono::milliseconds(1));  // (the read-back ring: one at a time)
+                        }
+                    }
+                g_interpBaseline = false;
+            }
             if (maxFrames && viRetraces() >= maxFrames) stop = true;  // (--frames: retraces, 60 a second)
             // SA2_STOP_AFTER=N with SA2_DUMP_REL: exit N frames after that module linked (test runs).
             static const u64 s_stopAfter = std::getenv("SA2_STOP_AFTER") ? std::strtoull(std::getenv("SA2_STOP_AFTER"), nullptr, 10) : 0;
@@ -716,6 +759,7 @@ int runFrontend(int argc, char** argv, bool headless, u64 maxFrames, void (*star
             static const int s_tdRel = std::getenv("SA2_DUMP_REL") ? std::atoi(std::getenv("SA2_DUMP_REL")) : -1;
             const u64 link = s_tdRel >= 0 ? g_relLinkFrame[s_tdRel & (kMaxModules - 1)].load() : 1;
             const u64 at = link ? link - 1 + s_tdFrom : ~0ull;
+            if (interpTest >= 0 && gxInterpNewest() && gxInterpNewest()->jitter) continue;  // (built as each frame came, above)
             if (dumpDir && dumpEvery && presented >= at && (presented - at) % dumpEvery == 0) {
                 // SA2_INTERP_STEPS=n: instead, t = 0, 1/n, ... (n-1)/n - consecutive frames make a sequence.
                 static const int s_steps = std::getenv("SA2_INTERP_STEPS") ? std::atoi(std::getenv("SA2_INTERP_STEPS")) : 0;

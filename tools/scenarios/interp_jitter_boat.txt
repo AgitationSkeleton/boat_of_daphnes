@@ -1,0 +1,67 @@
+description In-between frames while the King of Red Lions sails out of Windfall's harbor (its wake and waves): logs where everything is on screen and dumps pictures (tools/interpjitter.py, tools/interpimages.py)
+# `start load` times out (the boat's talk is an event it does not press through); the presses end the talk, Link steps along the dock
+# to the boat (stick left), then forward, and A climbs in; Y raises the sail and the boat sails out with the wind.
+timeout 2400
+save 3-Sail
+size 640x360
+env SA2_INTERP_TEST 0.5
+env SA2_INTERP_STEPS 4
+env SA2_INTERP_JITTER interp_jitter.log
+env SA2_INTERP_DUMP_LABELS 1
+env SA2_INTERP_DUMP_BASE 1
+env SA2_DUMP_DIR jitter_dump
+env SA2_DUMP_MAX 6000
+start load
+press A 6
+wait 60
+press A 6
+wait 60
+press A 6
+wait 60
+press A 6
+wait 60
+press A 6
+wait 60
+press A 6
+wait 60
+press A 6
+wait 60
+press A 6
+wait 60
+press A 6
+wait 60
+press A 6
+wait 60
+press A 6
+wait 60
+press A 6
+wait 60
+shot q0
+console pos
+stick -100 0 40
+wait 60
+stick 0 0
+console pos
+shot r0
+press A 8
+wait 120
+shot s0
+console pos
+stick 0 100 40
+wait 60
+stick 0 0
+console pos
+shot r1
+press A 8
+wait 120
+shot s1
+console pos
+press Y 10
+wait 300
+shot sailing
+jitter sail
+wait 900
+jitter off
+wait 3000
+shot end
+console pos
