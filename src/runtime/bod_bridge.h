@@ -10,6 +10,8 @@ namespace rt::bod {
 void setOverlay(void (*fn)(void*), void* user);
 bool optionSet(const char* name, bool on);
 bool optionHas(const char* name);
+bool optionValue(const char* name, float v);
+void stabSwingState(unsigned char* kind, unsigned char* serial, unsigned char* flags, bool* active);  // bod_gameopts.cpp
 void introSkipSet(bool on);
 extern std::atomic<bool> g_interp, g_fpsOverlay;
 extern std::atomic<int> g_interpSteps, g_integerScale;

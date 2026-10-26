@@ -1,0 +1,64 @@
+description Crouch Stab hits the world, not only players: a pot breaks and a ChuChu loses health from crouch stabs (R + B)
+# Link's sword must be drawn (R with it sheathed is Wind Waker's plain crouch, proc 0xE): B twice draws and slashes.
+# `actors NAME` lists the live ones before and after; the ChuChu needs a few stabs (the Hero's Sword's power 1).
+timeout 300
+save 2-Pictobox
+options oot_crouch_stab
+env BLUEWAKE_OOT_LOG 1
+env BLUEWAKE_TEST_BUNNY 1
+size 640x480
+start load
+wait link
+collect swords
+warp sea 44 0
+teleport sea 44 -201622 168 312243 -2003
+wait 90
+press B 6
+wait 40
+press B 6
+wait 60
+peek actor:0xA9+0x3560/2 equip_sword
+console pos
+console spawn kotubo 0xFFFFFFFF 55
+wait 30
+console actors tsubo
+shot pot_before
+hold R
+wait 30
+press B 6
+wait 20
+shot pot_stab
+wait 20
+release R
+wait 40
+console actors tsubo
+console spawn c_green 0xFFFFFFFF 90
+wait 90
+console actors cc
+peek actor:0xCF+0x285/1 chu_hp_before
+shot chu_before
+hold R
+wait 30
+peek actor:0xA9+0x31D8/4 chu_proc_at_press
+press B 6
+wait 15
+peek actor:0xCF+0x285/1 chu_hp_one_stab
+press B 6
+wait 15
+press B 6
+wait 15
+press B 6
+wait 15
+press B 6
+wait 15
+press B 6
+wait 40
+release R
+wait 60
+console actors cc
+shot chu_after
+expect \[oot\] stab 1 starts
+expect_peek equip_sword == 0x103
+expect_peek chu_proc_at_press == 0xC
+expect_peek chu_hp_before == 2
+expect_peek chu_hp_one_stab == 1

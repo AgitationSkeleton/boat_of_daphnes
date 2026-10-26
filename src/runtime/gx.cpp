@@ -424,18 +424,22 @@ u32 texBytes(u32 fmt, u32 w, u32 h) {
 }
 
 // TLUT slots: TMEM offsets (512-byte units past 0x80000) of the SDK's default regions, GX_TLUT0-15
-// at 0xC0000 + 0x2000*n and GX_BIGTLUT0-3 at 0xE0000 + 0x8000*n.
+// at 0xC0000 + 0x2000*n and GX_BIGTLUT0-1 at 0xE0000 + 0x8000*n, and J3D's own: the palette of texture map n at
+// 0xF0000 + 0x2000*n (J3DTevs.cpp), slots 20-27. In the SDK's 0x8000 steps J3D's maps 0-3 were all one slot, so a
+// material with two palettes drew one with the other's (the Helmaroc King's mask: user 2026-10-25).
+constexpr u32 kTlutSlots = 32;  // Aurora's MaxTluts (patches/aurora/0009)
 u32 tlutSlot(u32 tmem) {
+    if (tmem >= 0x380) return 20 + (tmem - 0x380) / 0x10;
     if (tmem >= 0x300) return 16 + (tmem - 0x300) / 0x40;
     return tmem >= 0x200 ? (tmem - 0x200) / 0x10 : 0;
 }
 struct TlutLoad {
     u32 src = 0, count = 0;
 };
-TlutLoad s_tluts[20];
+TlutLoad s_tluts[kTlutSlots];
 
 void emitTlut(u32 slot, u32 format) {
-    if (slot >= 20 || !s_tluts[slot].count) return;
+    if (slot >= kTlutSlots || !s_tluts[slot].count) return;
     aurora(AUR_LOAD_TLUT);
     put8(slot);
     put64(hostAddr(s_tluts[slot].src));
@@ -841,7 +845,7 @@ void translateBp(u32 v) {
     case 0x64: s_tlutSrc = val; break;
     case 0x65: {  // TLUT load: from s_tlutSrc in main memory into a TMEM region
         const u32 slot = tlutSlot(val & 0x3FF);
-        if (slot < 20) s_tluts[slot] = {(s_tlutSrc & 0x1FFFFF) << 5, ((val >> 10) & 0x7FF) * 16};
+        if (slot < kTlutSlots) s_tluts[slot] = {(s_tlutSrc & 0x1FFFFF) << 5, ((val >> 10) & 0x7FF) * 16};
         emitTlut(slot, 1);  // RGB565 until a texture names the format
         break;
     }
@@ -851,9 +855,20 @@ void translateBp(u32 v) {
         if ((val >> 14) & 1) s_displayCopies++;
         if (!((val >> 14) & 1)) {  // texture copy (display copies just present the EFB)
             aurora(AUR_COPY_SRC);
-            put32(s_copySrcTL & 0x3FF);
+            // The game's screen capture (the Picto Box's photo) names the viewfinder's window in the 4:3 screen's 640 columns;
+            // on a wide window the 2D picture is widened about the middle (twwwide.cpp) while the 3D picture fills the
+            // columns, so the same part of it is the window's picture narrowed by that scale.
+            s32 srcX = s32(s_copySrcTL & 0x3FF), srcW = s32(s_copySrcWH & 0x3FF) + 1;
+            if (s_cwArmed) {
+                const float scale = twwWideScale();
+                if (scale > 1.001f) {
+                    srcX = s32(std::lround(320.f + (float(srcX) - 320.f) / scale));
+                    srcW = std::max<s32>(1, s32(std::lround(float(srcW) / scale)));
+                }
+            }
+            put32(srcX);
             put32((s_copySrcTL >> 10) & 0x3FF);
-            put32((s_copySrcWH & 0x3FF) + 1);
+            put32(srcW);
             put32(((s_copySrcWH >> 10) & 0x3FF) + 1);
             const bool half = (val >> 9) & 1;
             const u32 fmt = ((val >> 4) & 7) | (((val >> 3) & 1) << 3);

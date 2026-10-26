@@ -27,6 +27,8 @@ void bluewake_ui_pad_set_gate(BluewakeUiPadGate gate, void* user);
 void bluewake_ui_pad_filter_axes(int8_t* stick_x, int8_t* stick_y);
 // Buttons to add to the guest's input for a number of samples (the resume at the title screen).
 void bluewake_ui_pad_inject(uint16_t buttons, unsigned samples);
+// Exactly these buttons, whatever is held, for `ms` milliseconds (the menu's Restart holds the game's reset pattern).
+void bluewake_ui_pad_hold(uint16_t buttons, unsigned ms);
 
 #ifdef __cplusplus
 }

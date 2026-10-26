@@ -1,0 +1,59 @@
+description MM Ledge Momentum and Jump Flips: running and rolling off Outset's dock end, three times each; the log has each ledge decision, the jump's kept speed and the flip picked
+options mm_momentum,mm_flips
+env BLUEWAKE_OOT_LOG 1
+size 1280x960
+save 2-Pictobox
+start load
+wait link
+warp sea 44 0
+wait 60
+teleport sea 44 -201622 168 312243 30765
+wait 40
+log run 0
+stick 0 127
+wait 50
+stick 0 0
+wait 60
+teleport sea 44 -201622 168 312243 30765
+wait 40
+log run 1
+stick 0 127
+wait 50
+stick 0 0
+wait 60
+teleport sea 44 -201622 168 312243 30765
+wait 40
+log run 2
+stick 0 127
+wait 50
+stick 0 0
+wait 60
+teleport sea 44 -201622 168 312243 30765
+wait 40
+log roll 0
+stick 0 127
+wait 4
+press A 4
+wait 40
+stick 0 0
+wait 60
+teleport sea 44 -201622 168 312243 30765
+wait 40
+log roll 1
+stick 0 127
+wait 4
+press A 4
+wait 40
+stick 0 0
+wait 60
+teleport sea 44 -201622 168 312243 30765
+wait 40
+log roll 2
+stick 0 127
+wait 4
+press A 4
+wait 40
+stick 0 0
+wait 60
+expect \[mm\] ledge
+expect \[mm\] jump 1

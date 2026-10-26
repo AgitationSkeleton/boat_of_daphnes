@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <atomic>
 #include <mutex>
 #include <vector>
@@ -130,6 +131,23 @@ void dumpAllThreads() {
 
 // ---- time base ----
 static const auto s_t0 = std::chrono::steady_clock::now();
+// Seconds from 2000-01-01 to now in local time: the IPL sets the time base to the console's clock (the RTC) before the
+// game runs, and OSGetTime is the time base, so a time base from 0 dated every save 01/01/2000 (user 2026-10-25). Test
+// runs (BLUEWAKE_TEST_SCRIPT) keep 0: what they peek must not depend on the day (BLUEWAKE_REAL_CLOCK gives them the date).
+u64 localSecondsSince2000() {
+    const std::time_t now = std::time(nullptr);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+    const std::time_t asUtc = _mkgmtime(&local);
+#else
+    localtime_r(&now, &local);
+    const std::time_t asUtc = timegm(&local);
+#endif
+    return asUtc > 946684800 ? u64(asUtc - 946684800) : 0;
+}
+static const u64 s_boot =
+    std::getenv("BLUEWAKE_TEST_SCRIPT") && !std::getenv("BLUEWAKE_REAL_CLOCK") ? 0 : localSecondsSince2000() * kTimebaseHz;
 u64 timebase() {
     static const u64 s_turbo = u64(std::max(1, std::getenv("SA2_TURBO") ? std::atoi(std::getenv("SA2_TURBO")) : 1));  // (test runs)
     const u64 ns = s_turbo * u64(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - s_t0).count());
@@ -137,7 +155,7 @@ u64 timebase() {
     // clock then jumped back to 0 - 7 min 35 s into every session the sound sequencer (an interrupt
     // handler) saw a huge elapsed time and never caught up: the game froze with its last audio
     // buffer looping (the "freeze with a loud beep").
-    return ns / 1000000000ull * kTimebaseHz + ns % 1000000000ull * kTimebaseHz / 1000000000ull;
+    return s_boot + ns / 1000000000ull * kTimebaseHz + ns % 1000000000ull * kTimebaseHz / 1000000000ull;
 }
 u32 Ctx::timebaseLo() { return u32(timebase()); }
 u32 Ctx::timebaseHi() { return u32(timebase() >> 32); }

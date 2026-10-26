@@ -1,0 +1,16 @@
+description Raising and lowering the Picto Box (Y, then B) at a wide aspect: every frame of both animations; the side panes must fade in and out in step with the centre (compare with the same run at 4:3)
+save 2-Pictobox
+timeout 900
+start load
+wait link
+give picto_box
+equip Y picto_box
+teleport sea 11 -1985 300 -200800 0
+wait link
+wait 120
+dumpframes 60
+press Y 20
+wait 200
+dumpframes 60
+press B 20
+wait 200

@@ -14,6 +14,7 @@
 
 #include <dolphin/gx.h>
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -159,11 +160,16 @@ bool snapAsk(u32 self) {
     s_snap.round++;
     s_snap.table.resize(kTableTo - kTableFrom);
     for (u32 i = 0; i < s_snap.table.size(); i++) s_snap.table[i] = u8(rd8(self + kTableFrom + i));
+    // The viewfinder's window is narrower in the 640 columns of a wide picture (the 3D view fills them, the 2D picture is
+    // widened about the middle: twwwide.cpp), so the same samples are taken over that narrower span.
+    const float scale = twwWideScale();
     std::vector<GxPeek> peeks;
     for (u32 s = 0; s < kStreams; s++) {
         peeks.clear();
-        for (u32 i = s * kPerStream; i < kPixels && i < (s + 1) * kPerStream; i++)
-            peeks.push_back({pixelKey(s_snap.round, i), false, u16(kLeft + i % kW), u16(kTop + i / kW)});
+        for (u32 i = s * kPerStream; i < kPixels && i < (s + 1) * kPerStream; i++) {
+            const u32 x = u32(std::lround(320.f + (float(kLeft + i % kW) - 320.f) / scale));
+            peeks.push_back({pixelKey(s_snap.round, i), false, u16(x), u16(kTop + i / kW)});
+        }
         for (GxPeek& p : peeks) p.depth = false;
         if (!gxCapturePeeks(s_snap.streams[s].id, ++s_snap.streams[s].seq, peeks.data(), u32(peeks.size()))) return false;
     }
@@ -212,7 +218,7 @@ void logJudged(u32 self) {
 // dSnap_packet::Judge. The first call after the shutter asks for the pixels; later calls (the game
 // draws and registers the subjects every frame while the shutter is held) look for them.
 HLE(Judge__12dSnap_packetFv) {
-    static const GuestFn s_orig = originalOf("Judge__12dSnap_packetFv");
+    static OriginalFn s_orig("Judge__12dSnap_packetFv");
     const u32 self = c.r[3];
     if (s_off || !(rd32(self + kFlag) & 1)) {
         const bool judging = rd32(self + kFlag) & 1;
@@ -269,15 +275,23 @@ HLE(Judge__12dSnap_packetFv) {
 // reads the picture back (encode_s3tc compresses it, asserting its I8 values are 16..235). The copies made inside are read
 // back from the GPU into guest memory, and the draw-sync callback waits for them (gx.cpp, gxCopyReadbackArm).
 HLE(mDoGph_screenCapture__Fv) {
-    static const GuestFn s_orig = originalOf("mDoGph_screenCapture__Fv");
+    static OriginalFn s_orig("mDoGph_screenCapture__Fv");
     gxCopyReadbackArm(!s_off);
     s_orig(c);
     gxCopyReadbackArm(false);
 }
 
+// dSnap_Obj::CalcArea2D: a subject's projected area, in the 640x480 screen's pixels. The shutter's samples are taken as
+// they are in a 4:3 picture's (above), where the wide picture's columns are narrower by the widening: the area counts so.
+HLE(CalcArea2D__9dSnap_ObjFv) {
+    static OriginalFn s_orig("CalcArea2D__9dSnap_ObjFv");
+    s_orig(c);
+    c.f[1] *= twwWideScale();
+}
+
 // SA2_SNAP=<frame>[,<frame>...] (testing): the shutter is released at those game frames, as the Picto Box does.
 HLE(dSnap_Execute__Fv) {
-    static const GuestFn s_orig = originalOf("dSnap_Execute__Fv");
+    static OriginalFn s_orig("dSnap_Execute__Fv");
     static std::vector<u64> s_at = [] {
         std::vector<u64> v;
         if (const char* e = std::getenv("SA2_SNAP"))
@@ -305,7 +319,7 @@ HLE(dSnap_Execute__Fv) {
 
 // GXPeekARGB(x, y, &color): answered from the photo's pixels while Judge runs.
 HLE(GXPeekARGB) {
-    static const GuestFn s_orig = originalOf("GXPeekARGB");
+    static OriginalFn s_orig("GXPeekARGB");
     const u32 x = c.r[3] & 0xFFFF, y = c.r[4] & 0xFFFF;
     if (!s_off && s_snap.answering && x >= u32(kLeft) && x < u32(kRight) && y >= u32(kTop) && y < u32(kBottom)) {
         wr32(c.r[5], s_snap.pixels[(y - kTop) * kW + (x - kLeft)]);

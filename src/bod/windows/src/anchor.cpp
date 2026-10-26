@@ -7,6 +7,7 @@
 #include "anchor_client.h"
 #include "anchor_content.h"
 #include "anchor_carry.h"
+#include "chat_portrait.h"
 #include "link_colors.h"
 #include "mods.h"
 #include "player_parts.h"
@@ -176,16 +177,25 @@ std::vector<unsigned char> base64_decode(const std::string& s) {
 // know). The history lasts the session; a line is the sender's name in their Anchor colour, ": ", the text in white. The Chat
 // window (Network > Anchor, or popped out: gOpenWindows.Chat) shows it; while that is not open an incoming line is a toast.
 constexpr size_t kChatMax = 200;
+chat_portrait::Source portrait_source(int id); // below, with the puppet content
 struct ChatLine {
     std::string name, text;
     ImVec4 color{1, 1, 1, 1};
+    int player = 0;                   // who said it (0: unknown, no portrait)
+    chat_portrait::Source portrait;   // what their portrait is made of, as they looked when they said it
+    ImTextureID texture = 0;          // the portrait, once drawn
+    Uint64 tried = 0;
 };
 std::vector<ChatLine> g_chat;
 bool g_chat_scroll = true;
 Uint64 g_chat_last_sent = 0;
 
-void chat_add(const std::string& name, ImVec4 color, const std::string& text) {
-    g_chat.push_back({name, text, color});
+void chat_add(const std::string& name, ImVec4 color, const std::string& text, int player) {
+    ChatLine line{name, text, color};
+    line.player = player;
+    if (player != 0 && chat_portrait::Enabled())
+        line.portrait = portrait_source(player);
+    g_chat.push_back(std::move(line));
     if (g_chat.size() > 500)
         g_chat.erase(g_chat.begin(), g_chat.begin() + 100);
     g_chat_scroll = true;
@@ -200,14 +210,57 @@ void toast(const std::string& prefix, const std::string& message) {
     notifications::Emit(std::move(o));
 }
 
+// --- Sounds ----------------------------------------------------------------------------------------------------
+// Network > Anchor > Chat Message Sound / Item Share Sound (both on by default): the game's own system sounds (JAZelAudio_SE.h),
+// started in play by the host (puppet.c, at the game's Sound Effects volume; nothing sounds at the title or the file select).
+struct SoundChoice {
+    const char* name;
+    unsigned id;
+};
+const SoundChoice kChatSounds[] = {
+    {"Menu Tick (file select cursor)", 0x0830},  // JA_SE_MSEL_CURSOR
+    {"Talk Cursor", 0x083D},                     // JA_SE_TALK_CURSOR
+    {"Name Entry Letter", 0x089D},               // JA_SE_NAME_INPUT
+    {"Alert Panel", 0x0897},                     // JA_SE_MSEL_ALERT_PANEL_IN
+    {"Compass Ping", 0x081F},                    // JA_SE_COMPASS_MOVE
+    {"Item Menu Set", 0x0817},                   // JA_SE_ITM_MENU_SET
+};
+const SoundChoice kItemSounds[] = {
+    {"Collection Chime", 0x08F6},                // JA_SE_COLL_TAKT_RIGHT
+    {"Item Pickup", 0x0827},                     // JA_SE_CONSUMP_ITEM_GET
+    {"Green Rupee", 0x0826},                     // JA_SE_LUPY_GET
+    {"Blue Rupee", 0x0835},                      // JA_SE_BLUE_LUPY_GET
+    {"Heart Piece", 0x0821},                     // JA_SE_HEART_PIECE
+    {"Puzzle Complete", 0x08F4},                 // JA_SE_15PUZZLE_COMPLETE
+};
+
+// Plays the sound the player picked for a kind of message ("Chat" or "Item"), when it is on.
+template <size_t N>
+void message_sound(const char* kind, const SoundChoice (&list)[N]) {
+    const std::string base = std::string("gNetwork.Anchor.") + kind + "Sound";
+    if (CVarGetInteger(base.c_str(), 1) == 0)
+        return;
+    const int pick = std::clamp(CVarGetInteger((base + "Id").c_str(), 0), 0, int(N) - 1);
+    std::fprintf(stderr, "[anchor] %s sound: %s (%04X)\n", kind, list[pick].name, list[pick].id);
+    bluewake_puppet_play_se(list[pick].id);
+}
+
 // Network > Anchor > Share Custom Player Content (on by default): a player's own custom Link (model,
 // voice, equipment) goes to the server and others' comes from it. Off, nothing is sent or fetched, and
 // everyone else's puppet is Link's own.
 bool share_content() { return CVarGetInteger("gNetwork.Anchor.ShareContent", 1) != 0; }
 
+void register_pins();
+
 // The server's address for content: its WebSocket host over HTTP (host:port is a server on this PC, no TLS).
 std::string http_base() {
-    const std::string host = cvar_string("gNetwork.Anchor.Host", "wwserver.viosarcade.xyz");
+    register_pins();
+    // On the backup server the content goes to it too (the main server's store is not that server's).
+    const std::string host = anchor::OnFallback() && !anchor::ActiveHost().empty()
+                                 ? anchor::ActiveHost()
+                                 : cvar_string("gNetwork.Anchor.Host", "wwserver.viosarcade.xyz");
+    if (host.rfind("wss://", 0) == 0)
+        return "https://" + host.substr(6);
     return (host.find(':') != std::string::npos ? "http://" : "https://") + host;
 }
 
@@ -280,6 +333,12 @@ void handshake() {
     picojson::object m;
     m["type"] = picojson::value("HANDSHAKE");
     m["protocol"] = picojson::value(static_cast<int64_t>(kProtocol));
+    // Another server (the backup one) does not know the id the first gave us: ask for a seat there by the token alone.
+    static std::string last_server;
+    const std::string server = anchor::OnFallback() ? anchor::ActiveHost() : std::string();
+    if (server != last_server)
+        g_self = 0;
+    last_server = server;
     if (g_self)
         m["clientId"] = picojson::value(static_cast<int64_t>(g_self));
     static const std::string token = install_token();
@@ -314,17 +373,68 @@ void send_room_state() {
     send(m);
 }
 
-void connect() {
-    anchor::Options o;
-    std::string host = cvar_string("gNetwork.Anchor.Host", "wwserver.viosarcade.xyz");
-    // "host:port" for a local server (ws://, no TLS).
+// "host" is a server over TLS (port 443); "wss://host:port" one over TLS on another port; "host:port" is one without it
+// (ws://), as a server on this PC or the backup one.
+void split_host(std::string host, std::string* name, unsigned short* port, bool* secure) {
+    *port = 443;
+    *secure = true;
+    const bool tls = host.rfind("wss://", 0) == 0;
+    if (tls)
+        host.erase(0, 6);
     if (const auto colon = host.rfind(':'); colon != std::string::npos) {
-        o.port = static_cast<unsigned short>(std::atoi(host.c_str() + colon + 1));
+        *port = static_cast<unsigned short>(std::atoi(host.c_str() + colon + 1));
         host.resize(colon);
-        o.secure = false;
+        *secure = tls;
     }
-    o.host = host;
+    *name = host;
+}
+
+// The backup server's address until the player sets another (the DNS-only name of the self-hosted copy of the server:
+// server/anchor-node/README.md). Also the default of Network > Anchor > Backup Server Address.
+constexpr const char* kDefaultBackupHost = "wss://wwfallback.viosarcade.xyz:38417";
+
+// The backup server is reached over TLS with a certificate of its own (self-signed, no CA behind it, since its name is a
+// DNS-only record): trusted by the hash of its public key. Regenerating the server's certificate (server/anchor-node/README.md)
+// means a new hash here. Only this host is pinned; another backup address is validated like any other TLS server.
+constexpr const char* kDefaultBackupName = "wwfallback.viosarcade.xyz";
+constexpr const char* kDefaultBackupPin = "af756bf7ce83bc39d46501843e7e7c26dedad4a6ddf91ce1df83e05f7aa7f3ea";
+
+void register_pins() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        bodplat::PinCertificate(kDefaultBackupName, kDefaultBackupPin);
+        // Testing only: BLUEWAKE_ANCHOR_TEST_PIN="host=<64 hex digits>" pins one more host (a server on this PC with a
+        // throwaway certificate) or, naming the default host, replaces its pin.
+        if (const char* test = std::getenv("BLUEWAKE_ANCHOR_TEST_PIN")) {
+            const std::string t = test;
+            if (const auto eq = t.find('='); eq != std::string::npos && eq > 0) {
+                bodplat::PinCertificate(t.substr(0, eq), t.substr(eq + 1));
+                std::fprintf(stderr, "[anchor] test pin set for %s\n", t.substr(0, eq).c_str());
+            }
+        }
+    });
+}
+
+bool is_loopback_host(const std::string& h) { return h.rfind("127.", 0) == 0 || h.rfind("localhost", 0) == 0 || h.rfind("[::1]", 0) == 0; }
+
+void connect() {
+    register_pins();
+    anchor::Options o;
+    split_host(cvar_string("gNetwork.Anchor.Host", "wwserver.viosarcade.xyz"), &o.host, &o.port, &o.secure);
     o.room = cvar_string("gNetwork.Anchor.Room", "ww-global");
+    // The backup server: used when the main one cannot be reached or is over its limits, or at once when the player
+    // chose it. A server on this PC (testing) does not fail over to the public backup unless that address was set by hand.
+    const std::string backup = cvar_string("gNetwork.Anchor.FallbackHost", kDefaultBackupHost);
+    const bool forced = CVarGetInteger("gNetwork.Anchor.UseBackup", 0) != 0;
+    const bool automatic = CVarGetInteger("gNetwork.Anchor.Failover", 1) != 0 &&
+                           (!is_loopback_host(cvar_string("gNetwork.Anchor.Host", "")) || backup != kDefaultBackupHost);
+    if (!backup.empty() && (automatic || forced)) {
+        split_host(backup, &o.fallback_host, &o.fallback_port, &o.fallback_secure);
+        if (!o.fallback_secure)
+            std::fprintf(stderr, "[anchor] warning: the backup server %s is reached without encryption (ws://); use wss:// outside a LAN\n",
+                         backup.c_str());
+        o.force_fallback = forced;
+    }
     anchor::Start(o);
     CVarSetInteger("gNetwork.Anchor.Enabled", 1);
     CVarSaveNextFrame();
@@ -704,6 +814,7 @@ void handle(const std::string& text) {
         o.message = "found";
         o.suffix = item_found::Name(item);
         notifications::Emit(std::move(o));
+        message_sound("Item", kItemSounds);
     } else if (type == "CHAT") {
         const int from = m.count("clientId") && m.at("clientId").is<int64_t>() ? static_cast<int>(m.at("clientId").get<int64_t>()) : 0;
         const auto it = g_players.find(from);
@@ -715,15 +826,18 @@ void handle(const std::string& text) {
             text.resize(kChatMax);
         const std::string name = it != g_players.end() ? it->second.name : "?";
         const ImVec4 color = it != g_players.end() ? it->second.color : ImVec4(1, 1, 1, 1);
-        chat_add(name, color, text);
+        chat_add(name, color, text, it != g_players.end() ? from : 0);
         if (CVarGetInteger("gOpenWindows.Chat", 0) == 0) {
             notifications::Options o;
             o.prefix = name;
             o.prefixColor = color;
             o.message = text;
             o.messageColor = ImVec4(1, 1, 1, 1);
+            if (it != g_players.end() && chat_portrait::Enabled())
+                o.portrait = chat_portrait::Get(g_chat.back().portrait);
             notifications::Emit(std::move(o));
         }
+        message_sound("Chat", kChatSounds);
     } else if ((type == "SYNC_SAVE" || type == "UPDATE_TEAM_STATE") && other_seed(m)) {
         // A teammate's save of another seed (or a vanilla save against a randomizer one): its items and flags are not
         // this game's, and merging them broke a new file (user 2026-10-17: sword and shield unequipped, Hero's Charm).
@@ -984,8 +1098,56 @@ struct PuppetContent {
     bool supplied_body = false, supplied_equipment = false, supplied_hands = false; // the disc's models are set for it
     bool voice_set = false;                        // the puppet has been told whose voice it has
     std::string hash;                              // the manifest the content here came from
+    std::shared_ptr<const std::vector<uint8_t>> body_bytes; // their model's cl.bdl and colors, for their chat portrait
+    std::shared_ptr<const model_colors::Set> colors;
 };
 std::map<int, PuppetContent> g_puppet_content;
+
+// What a player's chat portrait is drawn from: the model they wear (the game's Link, or their shared model once it has arrived) in
+// their colors. Id -1 or my own: this PC's.
+chat_portrait::Source portrait_source(int id) {
+    chat_portrait::Source s;
+    const auto p = g_players.find(id);
+    if (id < 0 || (p != g_players.end() && p->second.self)) {
+        s.spec = link_colors::LocalSpec();
+        if (mods::LocalState().link) { // a mod's Link of my own: its body and colors
+            static std::string made_for;
+            static std::shared_ptr<const std::vector<uint8_t>> body;
+            static std::shared_ptr<const model_colors::Set> colors;
+            const std::string active = mods::ActiveModel();
+            if (made_for != active) {
+                made_for = active;
+                body.reset();
+                colors.reset();
+                model_colors::Files files;
+                std::vector<uint8_t> cl;
+                if (mods::ActiveModelFiles(files) && rarc::Extract(files.link_arc, "cl.bdl", cl)) {
+                    body = std::make_shared<const std::vector<uint8_t>>(std::move(cl));
+                    auto set = std::make_shared<model_colors::Set>();
+                    std::string error;
+                    if (model_colors::Build(files, *set, &error))
+                        colors = set;
+                }
+            }
+            if (body) {
+                s.model = "local:" + made_for;
+                s.body = body;
+                s.colors = colors;
+            }
+        }
+        return s;
+    }
+    if (p == g_players.end())
+        return s;
+    s.spec = p->second.link_colors;
+    const auto pc = g_puppet_content.find(id);
+    if (share_content() && pc != g_puppet_content.end() && pc->second.body && pc->second.body_bytes) {
+        s.model = pc->second.hash;
+        s.body = pc->second.body_bytes;
+        s.colors = pc->second.colors;
+    }
+    return s;
+}
 
 // The voice banks of the players whose own bank is decoded (Ready::bank), for their puppets' voices. Read by the game thread
 // (a puppet starts a voice) and written by the app's.
@@ -1130,6 +1292,8 @@ void apply_content(const content::Ready& r) {
     PuppetContent& pc = g_puppet_content[r.id];
     pc.body = r.has_body;
     pc.hash = r.hash;
+    pc.body_bytes = r.has_body ? std::make_shared<const std::vector<uint8_t>>(r.body) : nullptr;
+    pc.colors = r.colors;
     pc.equipment = r.has_equipment;
     link_colors::SetPlayerModel(r.id, r.colors); // their model's colors (null: none)
     pc.supplied_body = pc.supplied_equipment = pc.supplied_hands = false; // replaced below or by sync_stock_models
@@ -1293,9 +1457,9 @@ void update_puppets(bool connected) {
 const char* status_text() {
     switch (anchor::GetStatus()) {
     case anchor::Status::Connected:
-        return "Connected";
+        return anchor::OnFallback() ? "Connected (backup server)" : "Connected";
     case anchor::Status::Connecting:
-        return "Connecting...";
+        return anchor::OnFallback() ? "Connecting (backup server)..." : "Connecting...";
     case anchor::Status::Failed:
         return "Not connected";
     default:
@@ -1478,7 +1642,45 @@ void chat_send(std::string text) {
     m["type"] = picojson::value("CHAT");
     m["text"] = picojson::value(text);
     send(m);
-    chat_add(cvar_string("gNetwork.Anchor.Name", "Link"), ImVec4(my_color().r / 255.f, my_color().g / 255.f, my_color().b / 255.f, 1.f), text);
+    chat_add(cvar_string("gNetwork.Anchor.Name", "Link"), ImVec4(my_color().r / 255.f, my_color().g / 255.f, my_color().b / 255.f, 1.f), text,
+             g_self != 0 ? g_self : -1);
+}
+
+// A chat line: the speaker's portrait (a round head in their colour, when Chat Portraits is on and it can be had), then the name in
+// their colour, ": " and the text. The portrait is drawn on first use, and again every few seconds while it cannot be had yet.
+void draw_chat_line(ChatLine& l, float scale) {
+    if (l.texture == 0 && l.player != 0 && chat_portrait::Enabled() && (l.tried == 0 || SDL_GetTicks() - l.tried >= 3000)) {
+        l.tried = SDL_GetTicks();
+        l.texture = chat_portrait::Get(l.portrait);
+    }
+    const bool portrait = l.texture != 0 && chat_portrait::Enabled();
+    ImVec2 below; // the line after the portrait
+    if (portrait) {
+        const float h = ImGui::GetTextLineHeight() * 1.9f;
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(h, h));
+        below = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 centre(at.x + h * 0.5f, at.y + h * 0.5f);
+        dl->AddCircleFilled(centre, h * 0.5f, ImGui::GetColorU32(ImVec4(l.color.x * 0.35f, l.color.y * 0.35f, l.color.z * 0.35f, 0.75f)));
+        dl->AddImageRounded(l.texture, at, ImVec2(at.x + h, at.y + h), ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE, h * 0.5f);
+        dl->AddCircle(centre, h * 0.5f, ImGui::GetColorU32(ImVec4(l.color.x, l.color.y, l.color.z, 1.f)), 0, std::max(1.5f, 1.5f * scale));
+        // The text at the portrait's middle, placed rather than SameLine'd: a group begun on the portrait's line keeps that line's
+        // top, and every SameLine in it went back there, so ": " and the text rode higher than the name (user 2026-10-25).
+        ImGui::SetCursorScreenPos(ImVec2(at.x + h + 5 * scale, at.y + (h - ImGui::GetTextLineHeight()) * 0.5f));
+        ImGui::BeginGroup();
+    }
+    ImGui::TextColored(l.color, "%s", l.name.c_str());
+    ImGui::SameLine(0, 0);
+    ImGui::TextUnformatted(": ");
+    ImGui::SameLine(0, 0);
+    ImGui::TextUnformatted(l.text.c_str());
+    if (portrait) {
+        ImGui::EndGroup();
+        const float y = ImGui::GetCursorScreenPos().y; // a one-line text ends above the portrait's foot: the next line goes below it
+        if (below.y - y - ImGui::GetStyle().ItemSpacing.y > 0)
+            ImGui::Dummy(ImVec2(0, below.y - y - ImGui::GetStyle().ItemSpacing.y));
+    }
 }
 
 // The chat's body: the history, then the input line.
@@ -1492,13 +1694,8 @@ void embed_chat(float scale, bool fill) {
     const float footer = ImGui::GetFrameHeightWithSpacing() + 4 * scale;
     if (ImGui::BeginChild("##chatlog", ImVec2(0, fill ? -footer : 160 * scale), ImGuiChildFlags_Borders)) {
         ImGui::PushTextWrapPos(0.f);
-        for (const ChatLine& l : g_chat) {
-            ImGui::TextColored(l.color, "%s", l.name.c_str());
-            ImGui::SameLine(0, 0);
-            ImGui::TextUnformatted(": ");
-            ImGui::SameLine(0, 0);
-            ImGui::TextUnformatted(l.text.c_str());
-        }
+        for (ChatLine& l : g_chat)
+            draw_chat_line(l, scale);
         ImGui::PopTextWrapPos();
         if (g_chat_scroll) {
             ImGui::SetScrollHereY(1.0f);
@@ -1634,13 +1831,8 @@ void draw_overlay(float scale, float fontScale) {
         const size_t first = g_chat.size() > kShown ? g_chat.size() - kShown : 0;
         if (g_chat.empty())
             ImGui::TextDisabled("No messages yet.");
-        for (size_t i = first; i < g_chat.size(); ++i) {
-            ImGui::TextColored(g_chat[i].color, "%s", g_chat[i].name.c_str());
-            ImGui::SameLine(0, 0);
-            ImGui::TextUnformatted(": ");
-            ImGui::SameLine(0, 0);
-            ImGui::TextUnformatted(g_chat[i].text.c_str());
-        }
+        for (size_t i = first; i < g_chat.size(); ++i)
+            draw_chat_line(g_chat[i], fontScale);
         ImGui::PopTextWrapPos();
         ImGui::Separator();
         ImGui::SetNextItemWidth(-1);
@@ -1797,6 +1989,35 @@ void BuildMenu(shipmenu::Menu& m) {
             if (connected_or_connecting())
                 w.disabledReasons.push_back("Disconnect to change the server");
         });
+    m.AddWidget(H, "Anchor", 0, "Backup Server Address", WidgetType::CVarInputText)
+        .CVar("gNetwork.Anchor.FallbackHost")
+        .DefaultText(kDefaultBackupHost)
+        .Range(0, 128)
+        .Tooltip("A second copy of the online play server. If the main one cannot be reached or is over its limits, "
+                 "the game moves to this one for the rest of the session. host:port connects without encryption.")
+        .PreFunc([](WidgetInfo& w) {
+            if (connected_or_connecting())
+                w.disabledReasons.push_back("Disconnect to change the server");
+        });
+    m.AddWidget(H, "Anchor", 0, "Switch to the Backup Server Automatically", WidgetType::CVarCheckbox)
+        .CVar("gNetwork.Anchor.Failover")
+        .DefaultValue(true)
+        .Tooltip("When the main server is down or over its limits, connect to the backup server instead and say so. "
+                 "Players in one room must all be on the same server: when the main server is down it is down for "
+                 "everyone, and everyone moves together.")
+        .PreFunc([](WidgetInfo& w) {
+            if (connected_or_connecting())
+                w.disabledReasons.push_back("Disconnect to change the server");
+        });
+    m.AddWidget(H, "Anchor", 0, "Use Backup Server", WidgetType::CVarCheckbox)
+        .CVar("gNetwork.Anchor.UseBackup")
+        .DefaultValue(false)
+        .Tooltip("Connect to the backup server straight away (for testing it, or when everyone in the room agrees to use "
+                 "it). Everyone in a room has to be on the same server to see each other.")
+        .PreFunc([](WidgetInfo& w) {
+            if (connected_or_connecting())
+                w.disabledReasons.push_back("Disconnect to change the server");
+        });
     m.AddWidget(H, "Anchor", 1, "Players", WidgetType::SeparatorText);
     // Other players are always drawn as Link (the marker-only option is gone); this shows or hides the
     // names above them.
@@ -1822,6 +2043,56 @@ void BuildMenu(shipmenu::Menu& m) {
                  "see a Samus and a Young Link. What others share is downloaded in the background and kept in the "
                  "cache folder beside the game (up to 500 MB). Off: yours is not sent, theirs is not downloaded or "
                  "used, and other players are drawn as the game's own Link.");
+    m.AddWidget(H, "Anchor", 1, "Chat Portraits", WidgetType::CVarCheckbox)
+        .CVar("gNetwork.Anchor.ChatPortraits")
+        .DefaultValue(true)
+        .Tooltip("Shows a small round portrait of the speaker's head, in their colors and on their own model, beside their lines in "
+                 "the chat window and in chat notifications. Drawn once per look and kept in the cache folder beside the "
+                 "downloaded player models.");
+    m.AddWidget(H, "Anchor", 1, "Chat Message Sound", WidgetType::CVarCheckbox)
+        .CVar("gNetwork.Anchor.ChatSound")
+        .DefaultValue(true)
+        .Tooltip("Plays one of the game's own sounds, at the game's Sound Effects volume, when another player's chat message "
+                 "arrives. Only while a game is in play.");
+    {
+        std::vector<std::string> names;
+        for (const SoundChoice& c : kChatSounds)
+            names.push_back(c.name);
+        m.AddWidget(H, "Anchor", 1, "Chat Sound", WidgetType::CVarCombobox)
+            .CVar("gNetwork.Anchor.ChatSoundId")
+            .Items(names)
+            .DefaultValue(0)
+            .Tooltip("Which of the game's sounds a chat message makes.");
+    }
+    m.AddWidget(H, "Anchor", 1, "Preview Chat Sound", WidgetType::Button)
+        .Tooltip("Plays the chat sound now (needs a game in play).")
+        .Callback([](WidgetInfo&) {
+            const int pick = std::clamp(CVarGetInteger("gNetwork.Anchor.ChatSoundId", 0), 0, int(std::size(kChatSounds)) - 1);
+            std::fprintf(stderr, "[anchor] chat sound preview: %s\n", kChatSounds[pick].name);
+            bluewake_puppet_play_se(kChatSounds[pick].id);
+        });
+    m.AddWidget(H, "Anchor", 1, "Item Share Sound", WidgetType::CVarCheckbox)
+        .CVar("gNetwork.Anchor.ItemSound")
+        .DefaultValue(true)
+        .Tooltip("Plays one of the game's own sounds, at the game's Sound Effects volume, when a teammate's \"found an item\" "
+                 "notification appears. Only while a game is in play.");
+    {
+        std::vector<std::string> names;
+        for (const SoundChoice& c : kItemSounds)
+            names.push_back(c.name);
+        m.AddWidget(H, "Anchor", 1, "Item Share Sound Choice", WidgetType::CVarCombobox)
+            .CVar("gNetwork.Anchor.ItemSoundId")
+            .Items(names)
+            .DefaultValue(0)
+            .Tooltip("Which of the game's sounds an item a teammate found makes.");
+    }
+    m.AddWidget(H, "Anchor", 1, "Preview Item Share Sound", WidgetType::Button)
+        .Tooltip("Plays the item share sound now (needs a game in play).")
+        .Callback([](WidgetInfo&) {
+            const int pick = std::clamp(CVarGetInteger("gNetwork.Anchor.ItemSoundId", 0), 0, int(std::size(kItemSounds)) - 1);
+            std::fprintf(stderr, "[anchor] item share sound preview: %s\n", kItemSounds[pick].name);
+            bluewake_puppet_play_se(kItemSounds[pick].id);
+        });
     m.AddWidget(H, "Anchor", 1, "Room Settings", WidgetType::SeparatorText);
     m.AddWidget(H, "Anchor", 1, "Player Interaction", WidgetType::Custom)
         .HideInSearch()
@@ -2018,6 +2289,10 @@ void Frame(float scale, float fontScale) {
             said = true;
             chat_send(test);
         }
+    }
+    if (anchor::TakeFailoverNotice()) {
+        toast("", "Online play moved to the backup server");
+        std::fprintf(stderr, "[anchor] toast: Online play moved to the backup server\n");
     }
     for (const std::string& m : anchor::Poll())
         handle(m);

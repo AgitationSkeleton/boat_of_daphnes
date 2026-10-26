@@ -61,12 +61,22 @@ GuestFn originalOf(const char* name) {
 }
 
 void callOriginal(Ctx& c, const char* name) {
-    // Looked up once per call site (its name literal): a search of every name each call cost the
-    // game a fifth of its time where hooks run often (heap allocations).
-    thread_local std::unordered_map<const char*, GuestFn> t_cache;
-    GuestFn& fn = t_cache[name];
-    if (!fn) fn = originalOf(name);
-    fn(c);
+    // Looked up once per call site (its name literal) and module in force: a search of every name each call cost the
+    // game a fifth of its time where hooks run often (heap allocations). After a module switch the other module's body
+    // would come back to the hook (OriginalFn).
+    struct Cached {
+        const GameModule* module;
+        GuestFn fn;
+    };
+    thread_local std::unordered_map<const char*, Cached> t_cache;
+    Cached& e = t_cache[name];
+    if (!e.fn || e.module != g_game) e = {g_game, originalOf(name)};
+    e.fn(c);
+}
+
+void OriginalFn::operator()(Ctx& c) {
+    if (!m_fn || m_module != g_game) m_fn = originalOf(m_name), m_module = g_game;
+    m_fn(c);
 }
 
 u32 guestSymbol(const char* name) {

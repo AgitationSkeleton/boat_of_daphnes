@@ -1,0 +1,41 @@
+description All three OoT controls on, away from the ground: on the boat (sailing, B, stick) and swimming; no [oot] hook may act and Link must not be slashing
+# The hooks only act in the walking procs; the king of red lions' steering and swimming are Wind Waker's own.
+timeout 500
+options oot_move,oot_turn,b_slash_now
+env BLUEWAKE_OOT_LOG 1
+save 5-BombsEarly
+start load
+wait link
+ride sea 45 0
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+press A 8
+wait 45
+wait 120
+log sailing
+stick 0 127
+wait 60
+press B 8
+wait 30
+stick -127 0
+wait 60
+peek actor:0xA9+0x31D8/4 proc_boat
+stick 0 0
+expect_not \[oot\] (move|turn)
+expect_peek proc_boat >= 0x80

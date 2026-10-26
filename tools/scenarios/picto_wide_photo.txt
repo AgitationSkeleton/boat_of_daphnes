@@ -1,0 +1,16 @@
+description The Picto Box photo at a wide aspect: the viewfinder at the shutter, then the captured picture (run with size per aspect; SA2_EFB_IMG as a folder keeps the capture)
+save 2-Pictobox
+start load
+wait link
+give picto_box
+equip Y picto_box
+teleport sea 11 -1985 300 -200800 0
+wait link
+wait 60
+press Y 10
+wait 300
+shot viewfinder
+press A 10
+wait 240
+shot after
+expect_not Failed assertion

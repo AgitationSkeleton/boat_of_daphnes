@@ -1,0 +1,88 @@
+description Control for oot_move_curve: the option off, Wind Waker's stick-squared speeds
+options none
+env BLUEWAKE_OOT_LOG 1
+save 2-Pictobox
+start load
+wait link
+warp Omori 0 0
+wait link
+wait 60
+warp Omori 0 0
+wait link
+wait 40
+log stick 40
+stick 0 40
+wait 70
+peek actor:0xA9+0x35BC/4 speed_40
+peek actor:0xA9+0x35B0/4 dist_40
+peek actor:0xA9+0x31D8/4 proc_40
+stick 0 0
+wait 60
+warp Omori 0 0
+wait link
+wait 40
+log stick 46
+stick 0 46
+wait 70
+peek actor:0xA9+0x35BC/4 speed_46
+peek actor:0xA9+0x35B0/4 dist_46
+peek actor:0xA9+0x31D8/4 proc_46
+stick 0 0
+wait 60
+warp Omori 0 0
+wait link
+wait 40
+log stick 52
+stick 0 52
+wait 70
+peek actor:0xA9+0x35BC/4 speed_52
+peek actor:0xA9+0x35B0/4 dist_52
+peek actor:0xA9+0x31D8/4 proc_52
+stick 0 0
+wait 60
+warp Omori 0 0
+wait link
+wait 40
+log stick 58
+stick 0 58
+wait 70
+peek actor:0xA9+0x35BC/4 speed_58
+peek actor:0xA9+0x35B0/4 dist_58
+peek actor:0xA9+0x31D8/4 proc_58
+stick 0 0
+wait 60
+warp Omori 0 0
+wait link
+wait 40
+log stick 64
+stick 0 64
+wait 70
+peek actor:0xA9+0x35BC/4 speed_64
+peek actor:0xA9+0x35B0/4 dist_64
+peek actor:0xA9+0x31D8/4 proc_64
+stick 0 0
+wait 60
+warp Omori 0 0
+wait link
+wait 40
+log stick 90
+stick 0 90
+wait 70
+peek actor:0xA9+0x35BC/4 speed_90
+peek actor:0xA9+0x35B0/4 dist_90
+peek actor:0xA9+0x31D8/4 proc_90
+stick 0 0
+wait 60
+warp Omori 0 0
+wait link
+wait 40
+log stick 127
+stick 0 127
+wait 70
+peek actor:0xA9+0x35BC/4 speed_127
+peek actor:0xA9+0x35B0/4 dist_127
+peek actor:0xA9+0x31D8/4 proc_127
+stick 0 0
+wait 60
+expect_not \[oot\]
+expect_peek proc_127 == 6

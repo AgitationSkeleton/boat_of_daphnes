@@ -1,0 +1,12 @@
+description Game logic rate standing still with the message-file features on (Instant Text, Crenando, Swift Sail); with env BLUEWAKE_FRAME_STATS 1 the log's [frames] lines count the retraces each frame took. The console holds about 29.97; this runtime is at 29.0-29.2 (about 6% of frames take three retraces: being looked into, 2026-10-25). Windowed, on an idle PC.
+windowed
+timeout 200
+save 2-Pictobox
+options instant_text,swift_sail
+cvar gEnhancements.Crenando 1
+size 1280x720
+start load
+wait link
+log GAME READY
+wait 2700
+log DONE

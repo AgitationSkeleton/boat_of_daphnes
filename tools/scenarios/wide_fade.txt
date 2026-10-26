@@ -1,0 +1,7 @@
+description A scene change's wipe at a wide aspect: the black must cover the whole window; run with size per aspect
+save 2-Pictobox
+start load
+wait link
+dumpframes 150
+warp sea 1 0 -1 4
+wait 60

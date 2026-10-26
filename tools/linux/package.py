@@ -146,6 +146,9 @@ def main():
 
     # --- assets, folders, papers, the menu entry ---
     put("assets/fonts", out, "assets/fonts")
+    # the version Settings > Updates compares with the newest release (v2026.10.24c -> 2026.10.24c)
+    with open(os.path.join(out, "version.txt"), "w") as f:
+        f.write(version.lstrip("v") + "\n")
     os.makedirs(os.path.join(out, "mods"), exist_ok=True)
     with open(os.path.join(out, "mods", "custom_mod_files_go_here.txt"), "w") as f:
         f.write("Mods, texture packs and player models go here (zips or folders). Settings > Mods lists them.\n")

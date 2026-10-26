@@ -5,6 +5,7 @@
 #include "runtime/gx.h"
 #include "runtime/runtime.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdlib>
 
@@ -34,19 +35,19 @@ HLE(create__10JKRExpHeapFUlP7JKRHeapb) {  // JKRExpHeap::create(size, parent, er
 // to frame: a material packet (its material, with its shapes' packets) and a shape packet for each
 // shape - named by those, a model's matrices pair with its own last frame's however the order goes.
 HLE(draw__12J3DMatPacketFv) {
-    static const GuestFn s_orig = originalOf("draw__12J3DMatPacketFv");
+    static OriginalFn s_orig("draw__12J3DMatPacketFv");
     gxTaskEnter(c.r[3], 0x802DB494);
     s_orig(c);
     gxTaskLeave();
 }
 HLE(drawFast__14J3DShapePacketFv) {
-    static const GuestFn s_orig = originalOf("drawFast__14J3DShapePacketFv");
+    static OriginalFn s_orig("drawFast__14J3DShapePacketFv");
     gxTaskEnter(c.r[3], 0x802DB8F8);
     s_orig(c);
     gxTaskLeave();
 }
 HLE(draw__14J3DShapePacketFv) {
-    static const GuestFn s_orig = originalOf("draw__14J3DShapePacketFv");
+    static OriginalFn s_orig("draw__14J3DShapePacketFv");
     gxTaskEnter(c.r[3], 0x802DB890);
     s_orig(c);
     gxTaskLeave();
@@ -55,7 +56,7 @@ HLE(draw__14J3DShapePacketFv) {
 // polygons under it. Those polygons are collected anew each frame (as many as are under it now):
 // they stay put, only the projection follows the actor - so they are not blended.
 HLE(draw__18dDlst_shadowReal_cFv) {
-    static const GuestFn s_orig = originalOf("draw__18dDlst_shadowReal_cFv");
+    static OriginalFn s_orig("draw__18dDlst_shadowReal_cFv");
     gxTaskEnter(c.r[3], 0x8008398C);
     gxStaticVerticesEnter();
     s_orig(c);
@@ -65,7 +66,7 @@ HLE(draw__18dDlst_shadowReal_cFv) {
 // A particle emitter's drawing (JPADraw is part of its emitter): its particles pair with that
 // emitter's last frame's, not with every particle in the scene drawn with the same quad.
 HLE(draw__7JPADrawFPA4_f) {
-    static const GuestFn s_orig = originalOf("draw__7JPADrawFPA4_f");
+    static OriginalFn s_orig("draw__7JPADrawFPA4_f");
     gxTaskEnter(c.r[3], 0x80268634);
     s_orig(c);
     gxTaskLeave();
@@ -77,7 +78,7 @@ HLE(draw__7JPADrawFPA4_f) {
 // they are in the world (the trail's points stay put as the boat moves on; the new end grows out of the old one's).
 #define TWW_TRAIL_DRAW(name)                                    \
     HLE(name) {                                                 \
-        static const GuestFn s_orig = originalOf(#name);        \
+        static OriginalFn s_orig(#name);        \
         gxTrailVerticesEnter();                                 \
         s_orig(c);                                              \
         gxTrailVerticesLeave();                                 \
@@ -93,18 +94,52 @@ TWW_TRAIL_DRAW(draw__19dPa_ripplePcallBackFP14JPABaseEmitterP15JPABaseParticle)
 // same x, z. (Its geometry goes into a display list the game plays later: gx.cpp carries the scope
 // to that list's playback.)
 HLE(draw__14daSea_packet_cFv) {
-    static const GuestFn s_orig = originalOf("draw__14daSea_packet_cFv");
+    static OriginalFn s_orig("draw__14daSea_packet_cFv");
     gxStaticVerticesEnter();
     gxHeightFieldEnter();
     s_orig(c);
     gxHeightFieldLeave();
     gxStaticVerticesLeave();
 }
+u64 viRetraces();  // hle_hw.cpp
 // The frame's start: JFWDisplay waits here for the retrace that begins it (every second one at 30 fps).
+// The menu's Restart (bluewake_request_soft_reset): what JUTGamePad does once B+X+Start has been held 0.5 s, at a frame's
+// start - the reset noted for port 0 and the game's reset callback (mDoRst_resetCallBack) called. Holding the buttons
+// for it worked, but the game took the B first and Link drew his sword (user 2026-10-25).
+std::atomic<bool> g_softReset{false};
+void softResetNow(Ctx& c) {
+    constexpr u32 kResetOccurred = 0x803F7899, kResetPort = 0x803F789C, kCallback = 0x803F7884, kCallbackArg = 0x803F7888;
+    if (rd8(kResetOccurred)) return;  // (one under way)
+    wr8(kResetOccurred, 1);
+    wr32(kResetPort, 0);
+    const u32 callback = rd32(kCallback);
+    log("[reset] the menu's Restart: the 3-button reset on port 0 (callback %08X)\n", callback);
+    if (callback) guestCall(c, callback, {0u, rd32(kCallbackArg)});
+}
 HLE(waitForTick__FUlUs) {
-    static const GuestFn s_orig = originalOf("waitForTick__FUlUs");
+    static OriginalFn s_orig("waitForTick__FUlUs");
+    // BLUEWAKE_FRAME_STATS (testing): every 300 frames, how many retraces the frames took and the longest work between waits
+    static const bool s_stats = std::getenv("BLUEWAKE_FRAME_STATS") != nullptr;
+    static u64 s_lastEnd = 0, s_lastTick = 0, s_n = 0, s_hist[5] = {}, s_workMax = 0, s_waitMax = 0, s_workSum = 0;
+    const u64 t0 = timebase();
     s_orig(c);
     gxFrameStarts();
+    if (g_softReset.exchange(false)) softResetNow(c);
+    if (!s_stats) return;
+    const u64 t1 = timebase(), tick = viRetraces();
+    if (s_lastEnd) {
+        const u64 work = t0 - s_lastEnd, wait = t1 - t0;
+        s_workMax = std::max(s_workMax, work), s_waitMax = std::max(s_waitMax, wait), s_workSum += work;
+        s_hist[std::min<u64>(4, tick - s_lastTick)]++;
+        if (++s_n == 300) {
+            log("[frames] 300: retraces 1:%llu 2:%llu 3:%llu 4+:%llu; work avg %.2f max %.2f ms, wait max %.2f ms\n", s_hist[1],
+                s_hist[2], s_hist[3], s_hist[4], s_workSum * 1000.0 / kTimebaseHz / 300, s_workMax * 1000.0 / kTimebaseHz,
+                s_waitMax * 1000.0 / kTimebaseHz);
+            s_n = 0, s_workMax = s_waitMax = s_workSum = 0;
+            for (u64& h : s_hist) h = 0;
+        }
+    }
+    s_lastEnd = t1, s_lastTick = tick;
 }
 
 void gameFixesInit() {}  // (Boat of Daphnes' settings are loaded first thing, in main)
@@ -122,3 +157,5 @@ void gameFixesFrame() {
 }
 
 }  // namespace rt
+
+extern "C" void bluewake_request_soft_reset(void) { rt::g_softReset = true; }

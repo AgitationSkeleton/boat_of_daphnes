@@ -1,0 +1,28 @@
+description Infinite Sword Glitch: a crouch stab cut short by an item-get (the sword is put away meanwhile, so the glitch rests until it is drawn again)
+timeout 500
+save 2-Pictobox
+options oot_crouch_stab
+env BLUEWAKE_OOT_KNOBS oot_stab_isg=1,oot_stab_speed=0.5
+env BLUEWAKE_OOT_LOG 1
+env BLUEWAKE_TEST_BUNNY 1
+size 640x480
+start load
+wait link
+collect swords
+warp sea 44 0
+teleport sea 44 -193800 700 318000 0
+wait 90
+press B 6
+wait 40
+press B 6
+wait 60
+hold R
+wait 30
+peek actor:0xA9+0x31D8/4 proc_before
+press B 3
+wait 3
+giveitem 0x07
+wait 40
+peek actor:0xA9+0x31D8/4 proc_after
+peek actor:0xA9+0x29C/4 noreset_after
+expect \[isg\] stab cut short \(t [0-9.]+\) by proc AE

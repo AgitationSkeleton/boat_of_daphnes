@@ -1,0 +1,17 @@
+description The menu bar's Restart (confirmed) is the game's B+X+Start reset: from play, with keyboard controls off (as the user has them), the game goes back to the title. Held buttons gave B first (Link drew his sword: user 2026-10-25); now the reset itself, so equip_during stays as equip_before
+windowed
+timeout 240
+save 2-Pictobox
+cvar gSettings.Controls.Port1.Keyboard 0
+size 1280x720
+start load
+wait link
+wait 60
+log RESTART NOW
+peek actor:0xA9+0x3560/2 equip_before
+menu set gTest.Restart=1
+wait 12
+peek actor:0xA9+0x3560/2 equip_during
+winshot during
+wait 228
+winshot after

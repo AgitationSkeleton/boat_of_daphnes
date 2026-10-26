@@ -1,0 +1,24 @@
+description Keep Held Weapons: Boko type 4 through a stage change
+timeout 900
+save 2-Pictobox
+options keep_weapons
+env BLUEWAKE_OOT_LOG 1
+env BLUEWAKE_TEST_BUNNY 1
+size 640x480
+start load
+wait link
+warp ma2room 0 0
+wait 120
+console spawn Boko 4 80
+wait 60
+press A 6
+wait 120
+peek actor:0xA9+0x3560/2 equip_before
+expect_peek equip_before == 0x101
+shot before
+warp sea 1 0
+wait 240
+peek actor:0xA9+0x3560/2 equip_after
+console actors Boko
+shot after
+expect_peek equip_after == 0x101

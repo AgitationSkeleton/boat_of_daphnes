@@ -1,0 +1,19 @@
+{
+  "name": "boat-of-daphnes-anchor-node",
+  "private": true,
+  "version": "1.0.0",
+  "description": "The Anchor online play server (server/anchor) on Node.js: the Cloudflare Worker's own modules behind a plain HTTP/WebSocket listener, for a self-hosted fallback.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "sync": "node scripts/sync-worker.mjs",
+    "start": "node scripts/sync-worker.mjs && node src/server.js",
+    "test": "node test/run-tests.mjs",
+    "package": "node scripts/package.mjs",
+    "test:extra": "node test/node_extra.mjs && node test/hardening.mjs"
+  },
+  "dependencies": {
+    "ws": "8.22.0"
+  }
+}

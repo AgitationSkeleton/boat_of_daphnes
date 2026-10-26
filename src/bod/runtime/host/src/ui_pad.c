@@ -2,6 +2,7 @@
 #include "ui_pad.h"
 
 #include <stdatomic.h>
+#include <time.h>
 
 static atomic_bool g_focus;
 static atomic_bool g_hide_until_release;
@@ -14,6 +15,14 @@ static void* g_gate_user;
 static atomic_bool g_axes_hide_until_centre;
 static int g_axis_dir;  // the stick's direction bits at the last sample
 static unsigned g_last_sample_id;
+static atomic_uint g_hold_buttons;
+static _Atomic long long g_hold_until_ms;
+
+static long long now_ms(void) {
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
 
 uint16_t bluewake_ui_pad_filter(uint16_t buttons) {
     unsigned raw = buttons;
@@ -24,6 +33,11 @@ uint16_t bluewake_ui_pad_filter(uint16_t buttons) {
     g_previous = raw;
     if (edges != 0u && g_gate != NULL && !atomic_load(&g_focus) && g_gate(edges, g_gate_user))
         atomic_store(&g_hide_until_release, true);
+    // A hold (the menu's Restart: the game's B+X+Start reset) is exactly its buttons for its time, whatever else is held: the
+    // game resets only on exactly that pattern held 0.5 s, and a count of samples ran out early where the host reads the
+    // pad more than once a frame (only B came through: the sword was drawn; user 2026-10-25).
+    if (atomic_load(&g_hold_until_ms) > now_ms())
+        return (uint16_t)atomic_load(&g_hold_buttons);
     const unsigned inject = atomic_load(&g_inject_samples);
     if (inject > 0u) {
         raw |= atomic_load(&g_inject_buttons);
@@ -53,6 +67,11 @@ bool bluewake_ui_pad_focused(void) { return atomic_load(&g_focus); }
 void bluewake_ui_pad_inject(uint16_t buttons, unsigned samples) {
     atomic_store(&g_inject_buttons, buttons);
     atomic_store(&g_inject_samples, samples);
+}
+
+void bluewake_ui_pad_hold(uint16_t buttons, unsigned ms) {
+    atomic_store(&g_hold_buttons, buttons);
+    atomic_store(&g_hold_until_ms, now_ms() + (long long)ms);
 }
 
 void bluewake_ui_pad_set_gate(BluewakeUiPadGate gate, void* user) {

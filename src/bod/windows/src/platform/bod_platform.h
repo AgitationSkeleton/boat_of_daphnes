@@ -111,6 +111,11 @@ private:
     Impl* mImpl;
 };
 
+// Pins the certificate of host (a name, no port): connections to it over TLS are accepted only when the SHA-256 of the
+// server certificate's SubjectPublicKeyInfo (64 hex digits) equals spki_sha256_hex, and then CA, name and expiry checks
+// are skipped (the pin is the trust anchor). Hosts without a pin are validated normally. An empty pin removes it.
+void PinCertificate(const std::string& host, const std::string& spki_sha256_hex);
+
 // One HTTP request to base ("https://host" or "http://host:port") + path. The answer is read whole, up to max_response bytes.
 struct HttpResult {
     bool ok = false;
@@ -123,6 +128,9 @@ HttpResult HttpRequest(const std::string& base, const char* method, const std::s
 // not say). progress returning false stops it. False, the file removed and *error set, when it did not complete.
 bool HttpDownload(const std::string& url, const std::string& path, const std::function<bool(uint64_t, uint64_t)>& progress,
                   std::string* error);
+
+// Whether a USB device with this vendor and product id is plugged in now (Windows; elsewhere always true).
+bool UsbDevicePresent(unsigned short vid, unsigned short pid);
 
 // A WebSocket client connection (text messages). Receive blocks, and Close from another thread ends it.
 class WebSocket {

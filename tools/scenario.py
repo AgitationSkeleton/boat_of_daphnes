@@ -316,7 +316,9 @@ def write_json_settings(exe_dir: Path, cvars: dict):
         for part in parts[:-1]:
             node = node.setdefault(part, {})
         v: object = value
-        if re.fullmatch(r"-?\d+", value):
+        if len(value) >= 2 and value[0] == value[-1] == '"':  # "8440614904": a string, even of digits (a seed's name)
+            v = value[1:-1]
+        elif re.fullmatch(r"-?\d+", value):
             v = int(value)
         elif re.fullmatch(r"-?\d*\.\d+", value):
             v = float(value)

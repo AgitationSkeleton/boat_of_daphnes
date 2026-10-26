@@ -1,0 +1,36 @@
+description Crouch Stab, to look at: Outset's dock (open, Link facing along it), one stab seen from the side and one from the front, every frame dumped
+# dump_0000.. are the side view (camera turned 90 degrees with the C-stick), the later ones the front view (180).
+timeout 300
+save 2-Pictobox
+options oot_crouch_stab
+env BLUEWAKE_OOT_LOG 1
+size 1280x960
+start load
+wait link
+collect swords
+warp sea 44 0
+teleport sea 44 -201622 168 312243 -2003
+wait 60
+press B 6
+wait 40
+press B 6
+wait 60
+cstick -127 0 27
+wait 40
+hold R
+wait 50
+dumpframes 16
+press B 4
+wait 40
+release R
+wait 20
+cstick -127 0 27
+wait 40
+hold R
+wait 50
+dumpframes 16
+press B 4
+wait 40
+release R
+wait 20
+expect \[oot\] stab 2 starts

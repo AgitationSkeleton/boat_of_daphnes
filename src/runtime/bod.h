@@ -27,6 +27,7 @@ std::string optionCvar(const char* name);  // gEnhancements.BetterWW.<name>
 bool optionSupported(const char* name);
 bool optionSet(const char* name, bool on);  // (bluewake_game_options_set)
 bool optionHas(const char* name);  // the option list has it (bluewake_game_options_has)
+bool optionValue(const char* name, float v);  // an Ocarina of Time controls knob (bluewake_game_options_set_value)
 bool optionOn(const char* name);
 void introSkipSet(bool on);  // (bluewake_intro_skip_set)
 void optionForce(const char* name, float heroMultiplier);  // a randomizer seed's option on (Hero Mode: its multiplier)

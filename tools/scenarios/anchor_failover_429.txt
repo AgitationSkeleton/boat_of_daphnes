@@ -1,0 +1,22 @@
+description Online failover: the main Anchor server is over its limits (answers HTTP 429 like Cloudflare), the game moves to the backup server and joins the room on it
+# Run:  node server/anchor-node/src/server.js with PORT=8822 (the backup; or server/anchor-node: PORT=8822 DATA_DIR=<tmp> node src/server.js)
+#       node server/anchor/test/spy_mate.mjs ws://127.0.0.1:8822 wt10fail 600 blue 0      (a test mate on the backup server)
+#       then this scenario. node server/anchor-node/test/stub_status.mjs 8821 429 is the "main server".
+# Expect: the game logs the moves to the backup server, shows the toast, connects to it, and the mate sees the game's client state.
+save 2-Pictobox
+cvar gNetwork.Anchor.Host 127.0.0.1:8821
+cvar gNetwork.Anchor.FallbackHost 127.0.0.1:8822
+cvar gNetwork.Anchor.Room wt10fail
+cvar gNetwork.Anchor.Name Tester
+cvar gNetwork.Anchor.Team blue
+cvar gNetwork.Anchor.Enabled 1
+windowed
+timeout 240
+start load
+wait link
+wait 1500
+log after_failover
+expect \[anchor\] the main server \(127.0.0.1\) is not usable \(2 failures, over its limits\)
+expect \[anchor\] toast: Online play moved to the backup server
+expect \[anchor\] connected to 127.0.0.1 \(backup server\) room
+expect_not TIMEOUT

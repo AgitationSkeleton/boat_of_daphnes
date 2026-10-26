@@ -335,6 +335,28 @@ void remount(Ctx& c, const char* path, u32 slot) {
     log("[rando] resident archive %s mounted again: %08X -> %08X%s\n", path, old, fresh, fresh ? "" : " (FAILED)");
 }
 
+// The name entry's title is message 40 ("Name Entry"; a seed's file adds "Seed hash:" and the hash under it, wwrando's
+// show_seed_hash_on_name_entry_screen), taken once as the Name scene was made (dName_c::screenSet). A switch made in that
+// scene left it as the other message file had it: a vanilla file was named under the seed's hash (user 2026-10-25). It is
+// taken again from the file now mounted: dScnName_c +0x424 its dName_c, whose titlePane (+0x20AC) is the J2DTextBox.
+void refreshNameTitle(Ctx& c) {
+    constexpr u32 kSceneList = 0x80372150, kNameScene = 0x000C, kDName = 0x424, kTitlePane = 0x20AC;
+    constexpr u32 FN_MESSAGE_GET = 0x8002BB78, FN_TEXTBOX_SET_STRING = 0x802D5AAC;
+    auto guest = [](u32 a) { return a >= 0x80000000u && a < 0x81800000u; };
+    const u32 node = rd32(kSceneList);
+    const u32 scene = guest(node) ? rd32(node + 0xC) : 0;
+    if (!guest(scene) || rd16(scene + 8) != kNameScene) return;
+    const u32 name = rd32(scene + kDName);
+    const u32 box = guest(name) ? rd32(name + kTitlePane) : 0;
+    if (!guest(box)) return;
+    static const u32 s_text = hleAlloc(1024);
+    wr8(s_text, 0);
+    guestCall(c, FN_MESSAGE_GET, {s_text, 0x28});
+    if (rd8(s_text) == 0) return;
+    guestCall(c, FN_TEXTBOX_SET_STRING, {box, s_text});
+    log("[rando] the name entry's title taken again from the message file now mounted\n");
+}
+
 // Its host's in-place switch (main.c host_rando_inplace_retrace and rando_ui.c's rebuild), here in one go on the file
 // select's frame: the seed out, the other program in force, the game's module controls and resident archives made again
 // for it, the seed in.
@@ -346,6 +368,7 @@ bool switchNow(Ctx& c, bool on) {
         // hash" text, shop and hint texts.
         remount(c, "/res/Msg/bmgres.arc", PLAY_MSGDT);
         remount(c, "/res/Msg/itemicon.arc", PLAY_ITEMICON);
+        refreshNameTitle(c);
         log("[rando] seed changed while the game runs: %s (%s)\n", bod_rando_name(), bod_rando_hash());
         return true;
     }
@@ -390,6 +413,7 @@ bool switchNow(Ctx& c, bool on) {
     guestCall(c, FN_CCC_INIT);
     remount(c, "/res/Msg/bmgres.arc", PLAY_MSGDT);
     remount(c, "/res/Msg/itemicon.arc", PLAY_ITEMICON);
+    refreshNameTitle(c);
     if (on) {
         if (bod_rando_loaded()) applySeed();
         else log("[rando] the randomizer is in force but no seed is loaded\n");

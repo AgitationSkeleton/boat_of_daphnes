@@ -1,0 +1,19 @@
+description OoT-style movement while running: a 90 degree turn of the stick turns the heading at OoT's fixed rate (1335 a frame at 220 deg/s), the facing follows
+options oot_move
+env BLUEWAKE_OOT_LOG 1
+save 2-Pictobox
+start load
+wait link
+warp Omori 0 0
+wait link
+wait 60
+stick 0 127
+wait 50
+log turn
+stick 127 0
+wait 20
+peek actor:0xA9+0x31D8/4 proc_after
+stick 0 0
+wait 30
+expect \[oot\] move run
+expect_peek proc_after == 6

@@ -33,6 +33,7 @@ void gameFixesInit();   // main.dol changes (src/runtime/tww.cpp), at startup
 void gameFixesFrame();  // ... and their per-frame part, on the game thread
 extern std::atomic<bool> g_wideCulling, g_wideHud;  // Widescreen Actor Culling and HUD at the Screen Edges (bod_gameopts)
 extern std::atomic<float> g_wideAspect;  // the window's aspect when widescreen is on, else 4:3 (frontend)
+float twwWideScale();                      // the 2D picture's widening about the middle (1 at 4:3), as the widescreen code has it
 void twwWideFrame();                       // the widescreen code, per frame (src/runtime/twwwide.cpp)
 extern std::atomic<float> g_wideExtra;  // logical units shown beyond each side of the 4:3 screen (frontend)
 void profileRegisterThread();  // src/runtime/profile.cpp: every thread running game code (priority; SA2_PROFILE)
@@ -58,6 +59,27 @@ struct HleReg {
 void resolveHooks();                         // fills g_hooks from the registry
 void callOriginal(Ctx& c, const char* name); // runs the translated body of a hooked function
 GuestFn originalOf(const char* name);        // ... that body, to keep (callOriginal looks it up each time)
+// A hooked function's body kept at a call site (static OriginalFn s_orig("name"); s_orig(c)): looked up again when the
+// module in force changes (modswitch). The other module's body of a hooked function goes back to the hook, so a body
+// kept from before a switch called the hook again without end (a stack overflow: user 2026-10-25).
+u32 archiveOpens();  // hle_dvd.cpp: archives opened from the disc so far
+// For the looks for message files in memory (Instant Text, Crenando, the Sail's name): asked once a second, due for the
+// five seconds after an archive opened, and not otherwise. They used to search all 24 MB every second, which cost the
+// game a frame about once a second (it ran at 29 of 30: cutscene audio drifted ahead; user 2026-10-25).
+struct ArchiveWatch {
+    u32 seen = ~0u;
+    int left = 0;
+    bool due();
+};
+class OriginalFn {
+public:
+    explicit OriginalFn(const char* name) : m_name(name) {}
+    void operator()(Ctx& c);
+private:
+    const char* m_name;
+    const void* m_module = nullptr;
+    GuestFn m_fn = nullptr;
+};
 u32 guestSymbol(const char* name);           // address of a named main.dol function (0 if unknown)
 const char* guestName(u32 addr);             // name of a main.dol function, or nullptr
 // Calls a guest function with up to 8 integer arguments on `c`'s stack/registers; returns r3.

@@ -38,6 +38,15 @@ constexpr OptionDef kOptions[] = {
     {"blur_off", 25, false, "Blur off"},
     {"remove_music", 26, false, "Remove music (wwrando's patch)"},
     {"invert_sea_compass_x", 27, false, "Invert the sea compass's left and right (wwrando's patch)"},
+    {"oot_move", 80, false, "OoT-style movement: Ocarina of Time's run and idle (speed curve, turning, reversal; hook 90)"},
+    {"oot_turn", 81, false, "Instant turning: a standing Link faces the stick at once (hook 81)"},
+    {"b_slash_now", 82, false, "B slashes at once: draw and slash from empty hands (site; hook 82 for no draw delay)"},
+    {"oot_crouch_stab", 83, false, "Crouch Stab (R + B): a quick low stab behind the shield, as in Ocarina of Time"},
+    {"oot_stab_power", 84, false, "Power Crouch Stab: the stab hits as hard as the last sword attack"},
+    {"mm_momentum", 85, false, "MM ledge momentum: jumps and falls off a ledge keep Link's speed, MM's air control"},
+    {"mm_flips", 86, false, "MM jump flips: running jumps are MM's front flip or side somersault a third of the time each"},
+    {"keep_weapons", 87, false, "Keep Held Weapons: a Bokoblin stick, machete, mace, Darknut sword or spear in Link's hand stays through doors and area changes"},
+    {"moblin_no_jail", 88, false, "No Moblin Stealth: without a sword the Forsaken Fortress's Moblins fight Link instead of catching him for the jail"},
 };
 constexpr SiteDef kSites[] = {
     {0, {0, 0, 0x801E6A0C}, false, 0x88030031},  // instant_text
@@ -57,7 +66,13 @@ constexpr SiteDef kSites[] = {
     {4, {0, 0, 0x800EEC40}, true, 0x0000A028},  // faster_grapple
     {4, {0, 0, 0x800EECA8}, false, 0x38A30006},  // faster_grapple
     {6, {0, 0, 0x8016DA2C}, false, 0x3800000A},  // faster_animations
+    {38, {0, 0, 0x8010D6DC}, false, 0x60000000},  // b_slash_now: nop for the beq that skipped the slash from empty hands
+    {41, {0, 0, 0x801113D8}, false, 0x38800000},  // mm_momentum: changeAutoJumpProc's procFall_init(1) -> (0), the speed kept
     {7, {2, 1, 0x1BC0}, false, 0x4800001C},  // tingle_chests
+    // moblin_no_jail: d_a_mo2's rouya_mode ("jail mode", on while Link has no sword) is never set: daMo2_Execute and
+    // daMo2_Create's "li r0, 1" before its store -> "li r0, 0" (the guards then fight, and can be targeted)
+    {44, {234, 1, 0xACE8}, false, 0x38000000},  // moblin_no_jail: daMo2_Execute
+    {44, {234, 1, 0xBEA4}, false, 0x38000000},  // moblin_no_jail: daMo2_Create
     {7, {2, 1, 0x1C28}, false, 0x60000000},  // tingle_chests
     {7, {0, 0, 0x8004C68C}, false, 0x48000010},  // tingle_chests
     {7, {0, 0, 0x801A9F8C}, false, 0x48000010},  // tingle_chests
@@ -153,6 +168,31 @@ constexpr HookDef kHooks[] = {
     {28, {0, 0, 0x801A55D0}, false, 72},  // bunny_hood
     {28, {0, 0, 0x801A5498}, false, 73},  // bunny_hood
     {28, {0, 0, 0x8011215C}, false, 74},  // bunny_hood
+    {36, {0, 0, 0x8010A4D4}, false, 90},  // oot_move: setSpeedAndAngleNormal's entry (OoT's run and idle take over)
+    {37, {0, 0, 0x8010A4D8}, false, 81},  // oot_turn: setSpeedAndAngleNormal's second instruction (standing: face the stick)
+    {38, {0, 0, 0x8010D068}, false, 82},  // b_slash_now: checkItemChangeFromButton, after the draw started
+    {39, {0, 0, 0x80113DBC}, false, 83},  // oot_crouch_stab (procCrouchDefense)
+    {39, {0, 0, 0x80112348}, false, 85},  // oot_crouch_stab (commonProcInit)
+    {39, {0, 0, 0x80103494}, false, 89},  // oot_crouch_stab (jointBeforeCB)
+    {39, {0, 0, 0x8011DC70}, true, 91},  // oot_crouch_stab (setCollision, after its initSwBlur: the trail)
+    {39, {0, 0, 0x8011D788}, false, 102},  // oot_crouch_stab (setCollision's entry: a sword kept live by the Infinite Sword Glitch)
+    {39, {0, 0, 0x8012DAAC}, false, 103},  // oot_crouch_stab (dProcTalk_init's call of setAnimeUnequip: a sword kept live by the glitch stays out for a talk)
+    {39, {0, 0, 0x8011E188}, true, 92},  // oot_crouch_stab (setCollision, after its copySwBlur: the trail)
+    {39, {0, 0, 0x80114440}, false, 120},  // oot_crouch_stab: procCrouch's entry (Draw Into a Stab)
+    {39, {0, 0, 0x8011EEB8}, false, 121},  // oot_crouch_stab: setAttentionPos's end (Talk and Read While Defending: standing reach)
+    {40, {0, 0, 0x8011D070}, false, 88},  // oot_stab_power (setAtParam)
+    {41, {0, 0, 0x801111B8}, false, 93},  // mm_momentum: changeAutoJumpProc's jump test
+    {41, {0, 0, 0x8011548C}, false, 94},  // mm_momentum: procFrontRoll after its prologue (MM's roll speed)
+    {41, {0, 0, 0x80116028}, false, 95},  // mm_momentum: procAutoJump_init's end (the speed its clamp took)
+    {41, {0, 0, 0x8011604C}, false, 96},  // mm_momentum: procAutoJump after its prologue (air control)
+    {41, {0, 0, 0x80116A4C}, false, 97},  // mm_momentum: procFall after its prologue (air control)
+    {42, {0, 0, 0x80103498}, false, 98},  // mm_flips: jointBeforeCB's second instruction
+    {42, {0, 0, 0x80103AAC}, false, 100},  // mm_flips: jointAfterCB (the animation's own values back)
+    {42, {0, 0, 0x8010D810}, false, 99},  // mm_flips: checkJumpCutFromButton (no jump attack in an MM flip)
+    {43, {0, 0, 0x80121B10}, false, 104},  // keep_weapons: daPy_lk_c::execute's door drop (the equip test: past the drop)
+    {43, {0, 0, 0x80122D58}, false, 105},  // keep_weapons: playerDelete's entry (what he holds goes to the next stage)
+    {43, {0, 0, 0x801084C0}, false, 106},  // keep_weapons: setActorPointer's entry (each frame: note the weapon; make it again in the new stage)
+    {43, {0, 0, 0x8010C570}, false, 122},  // keep_weapons: deleteEquipItem's entry (no drop during a door's event)
 };
 constexpr WriteDef kWrites[] = {
     {1, {168, 4, 0x128}, 4, 0x3CF5C28F},  // swift_sail

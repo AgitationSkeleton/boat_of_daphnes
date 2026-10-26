@@ -1,0 +1,26 @@
+description Chat portrait of a player model in its colors: Young Link (a mod zip in mods/, not in the repo) with a purple tunic says a line; the portrait log shows its textures recolored and replaced
+# Needs a local Anchor server on 127.0.0.1:8826 (server/anchor: npx wrangler dev --port 8826) and mods/457_young_link.zip beside the exe
+windowed
+timeout 200
+save 2-Pictobox
+env BLUEWAKE_PORTRAIT_LOG 1
+env BLUEWAKE_TEST_CHAT_OVERLAY purple?
+cvar gSettings.Mods.Enabled 1
+cvar gSettings.Mods.Order 457_young_link.zip
+cvar gSettings.Mods.Parts 457_young_link.zip:-:1:models/Young Link/
+cvar gCosmetics.Link.YoungLink.Hero.Tunic.Changed 1
+cvar gCosmetics.Link.YoungLink.Hero.Tunic.Value.R 141
+cvar gCosmetics.Link.YoungLink.Hero.Tunic.Value.G 12
+cvar gCosmetics.Link.YoungLink.Hero.Tunic.Value.B 143
+cvar gCosmetics.Link.YoungLink.Hero.Tunic.Value.A 255
+cvar gNetwork.Anchor.Enabled 1
+cvar gNetwork.Anchor.Host 127.0.0.1:8826
+cvar gNetwork.Anchor.Room portm
+cvar gNetwork.Anchor.Name Tester
+cvar gNetwork.Anchor.ChatPortraits 1
+cvar gOpenWindows.Chat 1
+start load
+wait link
+log GAME READY
+wait 1200
+winshot chat

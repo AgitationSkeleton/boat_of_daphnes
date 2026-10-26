@@ -139,5 +139,13 @@ a reader skips tags it does not know. Tag 1 expression (the face textures), 2 at
 eyes and bombs: 6 eyes (count, then per eye material: material index, texture matrix slot, the pupil's scroll x and y as s16 in
 1/8192 of a texture; a pose without it shows the pupils straight ahead) and 7 bombs (count, then per bomb: id, kind 0 bomb or 1
 bomb flower, state 0 held, 1 free, 2 exploded, frames to the explosion s16, the world place as 3 floats and the place in the hands,
-relative to the base, as 3 x s16 in 1/8 units; a bomb that has gone off stays listed for about two seconds). No server change: the
-server relays the pose as it is.
+relative to the base, as 3 x s16 in 1/8 units; a bomb that has gone off stays listed for about two seconds) and 8 swing (the
+crouch stab of Enhancements > Gameplay: u8 kind, 1 stab or 2 power stab; u8 serial, which counts the sender's stabs and wraps; u8 flags,
+bit 0 the Master Sword; the block is in every pose for about 0.7 s after a stab starts, and absent otherwise). A stab stays in the
+crouch's `proc`, which is why the puppet cannot hear it from the proc as it hears a cut: the reader makes the sword's swish and Link's
+voice (the light one for kind 1, the heavier for kind 2) once when the serial of a pose changes, and never for the first pose it
+reads of a player (a stab already going on is not made again). The pose itself, the thrust over the crouch, is joint transforms like
+any other and needs nothing from the reader. A `PVP_HIT` by a stab is an ordinary hit: `damage` is the attack power of the collider
+that touched the body (a power stab's is that of the sender's last sword attack), and the sender's own cooldown between two hits on
+one player is 350 ms between two stab swings (one hit a swing) and 700 ms otherwise. No server change: the server relays the pose as it
+is.

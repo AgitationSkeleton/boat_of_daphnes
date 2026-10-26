@@ -13,6 +13,8 @@
 #include <string>
 #include <vector>
 
+#include "head_render.h"
+
 namespace model_colors {
 struct Set;
 }
@@ -50,5 +52,9 @@ void SetPlayerColors(int id, const std::string& spec);
 // as the vanilla ones are. nullptr: the puppet has no model of its own again. Takes effect at the next SetPlayerColors.
 void SetPlayerModel(int id, std::shared_ptr<const model_colors::Set> set);
 void ForgetPlayer(int id);
+// For a chat portrait (head_render.h): every recolorable texture of Link, in the colors of `spec` (LocalSpec's format; "" the game's
+// own), by the renderer's key, unchanged ones too; with `model` (a player's own model) its textures in the model colors of the spec
+// as well. False when there is nothing to recolor (the data of the disc's Link is not made yet and there is no model).
+bool PortraitTextures(const std::string& spec, const model_colors::Set* model, head_render::Replacements& out);
 
 } // namespace link_colors

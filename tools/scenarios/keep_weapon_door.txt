@@ -1,0 +1,36 @@
+description Keep Held Weapons: a stick carried through a door inside a stage (Dragon Roost Cavern) stays in Link's hand
+timeout 900
+save 2-Pictobox
+options keep_weapons
+env BLUEWAKE_OOT_LOG 1
+env BLUEWAKE_TEST_BUNNY 1
+size 640x480
+start load
+wait link
+warp M_NewD2 0 0
+wait 60
+teleport M_NewD2 0 -800 200 4300 -32768
+wait 90
+poke 0x803C53A0=3/1
+console spawn Boko 0 70
+wait 60
+press A 6
+wait 120
+peek actor:0xA9+0x3560/2 equip_before
+expect_peek equip_before == 0x101
+shot before
+stick 0 100
+wait 150
+peek 0x803C53A0/1 keys
+press A 6
+wait event 600
+peek actor:0xA9+0x3560/2 equip_in_door
+shot in_door
+wait noevent 900
+stick 0 0
+wait 60
+peek actor:0xA9+0x3560/2 equip_after
+console actors Boko
+shot after
+expect_peek equip_in_door == 0x101
+expect_peek equip_after == 0x101

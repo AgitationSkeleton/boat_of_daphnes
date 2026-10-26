@@ -1,0 +1,31 @@
+description Crouch Stab seen on the self-test puppet (Anchor encodes the pose and a puppet copy of Link plays it, here with the option on; anchor_stab_replay does it with the option off)
+# The sword and shield from the save, the sword drawn, R held (procCrouchDefense, proc 12), the camera turned to Link's side
+# with the C-stick; B stabs twice and the frames are dumped from the first press (look at them: tools/scenario.py's dump_*.png).
+# The log (BLUEWAKE_OOT_LOG) has each stab's start, the frame its sword's hit opens and the blade's place.
+timeout 300
+save 2-Pictobox
+options oot_crouch_stab
+env BLUEWAKE_OOT_LOG 1
+windowed
+env BLUEWAKE_PUPPET_SELF 90
+env BLUEWAKE_PUPPET_PROC_LOG 1
+size 1280x960
+start load
+wait link
+collect swords
+wait 20
+press B 8
+wait 40
+cstick 127 0 20
+wait 50
+hold R
+wait 60
+peek actor:0xA9+0x31D8/4 proc
+peek actor:0xA9+0x3560/2 equipped
+dumpframes 40
+press B 6
+wait 40
+press B 6
+wait 70
+release R
+wait 40

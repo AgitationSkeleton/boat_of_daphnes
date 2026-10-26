@@ -29,7 +29,7 @@ through (`BLUEWAKE_TEST_SCRIPT`, `src/runtime/bod_testscript.cpp`).
 | `description TEXT` | shown by `--list` |
 | `save NAME` | the base save: a path, or a name in the saves folder (`2-Pictobox` finds `2-Pictobox.gci`). Japanese saves are converted to the US game, a memory card is built. `save new` (or no `save`) is an empty formatted card |
 | `patch OFFSET=VALUE ...` / `OFFSET\|VALUE` | bytes of save file 1 set / or-ed (offsets from `g_dComIfG_gameInfo`, checksums redone) |
-| `cvar NAME VALUE` | a setting in `boat-of-daphnes.json` for this run (restored after) |
+| `cvar NAME VALUE` | a setting in `boat-of-daphnes.json` for this run (restored after); a value in double quotes is a string even when it is digits (a seed) |
 | `env NAME VALUE` | an environment variable for the game |
 | `options LIST` | `BLUEWAKE_OPTIONS` (game options on/off; the default is the options' defaults) |
 | `size WxH` | the window / render size |

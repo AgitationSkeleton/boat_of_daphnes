@@ -42,6 +42,22 @@ static u32 g_rec_count;
 static u32 g_frame;
 static u32 g_fail_alloc;
 static bool g_log_texts;
+// The look through all of memory for message files, once a second, only for the five seconds after an archive opened from
+// the disc (hle_dvd.cpp): every second it cost the game a frame (user 2026-10-25). Our own entries are checked each frame.
+unsigned bluewake_archive_opens(void);
+static bool archive_due(void) {
+    static unsigned seen = ~0u;
+    static int left = 0;
+    const unsigned n = bluewake_archive_opens();
+    if (n != seen) {
+        seen = n;
+        left = 5;
+    }
+    if (left <= 0)
+        return false;
+    left--;
+    return true;
+}
 enum { TESTS = 48 };
 static struct { u32 id, at; bool done, show; } g_tests[TESTS];
 static u32 g_test_count;
@@ -453,7 +469,7 @@ void bluewake_text_swap_retrace(CPUState* cpu) {
     if (g_buf == 0u)
         return; // the fiber gets it
     // A look at once when switched on, or when one of our entries is not ours any more (a file loaded over), else now and then.
-    bool look = !g_applied || g_frame % SCAN_EVERY == 0u;
+    bool look = !g_applied || (g_frame % SCAN_EVERY == 0u && archive_due());
     if (!look && g_rec_count != 0u) {
         const Record* r = &g_rec[g_frame % g_rec_count];
         look = !file_ok(cpu, r->bmg) || mem_read32(cpu, r->entry) != r->mine;

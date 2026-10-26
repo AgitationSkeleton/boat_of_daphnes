@@ -1,0 +1,29 @@
+description Talk and Read While Defending: crouched behind the shield at Outset's post box, A shows Check and opens it (the crouch's low attention point is put back at standing height)
+timeout 300
+save 2-Pictobox
+options oot_crouch_stab
+env BLUEWAKE_OOT_KNOBS oot_stab_talk=1
+env BLUEWAKE_OOT_LOG 1
+cvar gEnhancements.SkipText 1
+size 1280x960
+start load
+wait link
+collect swords
+warp sea 44 0
+wait 40
+teleport sea 44 -203517 468 316518 49152
+wait 40
+press B 6
+wait 40
+press B 6
+wait 40
+hold R
+wait 30
+shot crouched
+press A 6
+wait 30
+peek actor:0xA9+0x31D8/4 proc_after
+release R
+wait 30
+expect \[oot\] talk from the crouch
+expect_peek proc_after == 0xAA

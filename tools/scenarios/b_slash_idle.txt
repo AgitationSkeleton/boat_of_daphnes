@@ -1,0 +1,105 @@
+description B from sheathed, empty-handed, standing: the sword is drawn and a slash proc (0x41-0x4A) starts
+options b_slash_now
+env BLUEWAKE_OOT_LOG 1
+save 2-Pictobox
+start load
+wait link
+warp Omori 0 0
+wait link
+wait 60
+peek actor:0xA9+0x3560/2 equip_before
+peek actor:0xA9+0x31D8/4 proc_before
+hold B
+wait 1
+peek actor:0xA9+0x31D8/4 proc1
+peek actor:0xA9+0x3560/2 equip1
+wait 1
+peek actor:0xA9+0x31D8/4 proc2
+peek actor:0xA9+0x3560/2 equip2
+wait 1
+peek actor:0xA9+0x31D8/4 proc3
+peek actor:0xA9+0x3560/2 equip3
+wait 1
+peek actor:0xA9+0x31D8/4 proc4
+peek actor:0xA9+0x3560/2 equip4
+wait 1
+peek actor:0xA9+0x31D8/4 proc5
+peek actor:0xA9+0x3560/2 equip5
+wait 1
+peek actor:0xA9+0x31D8/4 proc6
+peek actor:0xA9+0x3560/2 equip6
+wait 1
+peek actor:0xA9+0x31D8/4 proc7
+peek actor:0xA9+0x3560/2 equip7
+wait 1
+peek actor:0xA9+0x31D8/4 proc8
+peek actor:0xA9+0x3560/2 equip8
+wait 1
+peek actor:0xA9+0x31D8/4 proc9
+peek actor:0xA9+0x3560/2 equip9
+wait 1
+peek actor:0xA9+0x31D8/4 proc10
+peek actor:0xA9+0x3560/2 equip10
+wait 1
+peek actor:0xA9+0x31D8/4 proc11
+peek actor:0xA9+0x3560/2 equip11
+wait 1
+peek actor:0xA9+0x31D8/4 proc12
+peek actor:0xA9+0x3560/2 equip12
+wait 1
+peek actor:0xA9+0x31D8/4 proc13
+peek actor:0xA9+0x3560/2 equip13
+wait 1
+peek actor:0xA9+0x31D8/4 proc14
+peek actor:0xA9+0x3560/2 equip14
+wait 1
+peek actor:0xA9+0x31D8/4 proc15
+peek actor:0xA9+0x3560/2 equip15
+wait 1
+peek actor:0xA9+0x31D8/4 proc16
+peek actor:0xA9+0x3560/2 equip16
+wait 1
+peek actor:0xA9+0x31D8/4 proc17
+peek actor:0xA9+0x3560/2 equip17
+wait 1
+peek actor:0xA9+0x31D8/4 proc18
+peek actor:0xA9+0x3560/2 equip18
+wait 1
+peek actor:0xA9+0x31D8/4 proc19
+peek actor:0xA9+0x3560/2 equip19
+wait 1
+peek actor:0xA9+0x31D8/4 proc20
+peek actor:0xA9+0x3560/2 equip20
+wait 1
+peek actor:0xA9+0x31D8/4 proc21
+peek actor:0xA9+0x3560/2 equip21
+wait 1
+peek actor:0xA9+0x31D8/4 proc22
+peek actor:0xA9+0x3560/2 equip22
+wait 1
+peek actor:0xA9+0x31D8/4 proc23
+peek actor:0xA9+0x3560/2 equip23
+wait 1
+peek actor:0xA9+0x31D8/4 proc24
+peek actor:0xA9+0x3560/2 equip24
+wait 1
+peek actor:0xA9+0x31D8/4 proc25
+peek actor:0xA9+0x3560/2 equip25
+wait 1
+peek actor:0xA9+0x31D8/4 proc26
+peek actor:0xA9+0x3560/2 equip26
+wait 1
+peek actor:0xA9+0x31D8/4 proc27
+peek actor:0xA9+0x3560/2 equip27
+wait 1
+peek actor:0xA9+0x31D8/4 proc28
+peek actor:0xA9+0x3560/2 equip28
+wait 1
+peek actor:0xA9+0x31D8/4 proc29
+peek actor:0xA9+0x3560/2 equip29
+wait 1
+peek actor:0xA9+0x31D8/4 proc30
+peek actor:0xA9+0x3560/2 equip30
+expect_peek proc12 >= 0x41
+expect_peek proc12 <= 0x4A
+expect_peek equip12 == 0x103

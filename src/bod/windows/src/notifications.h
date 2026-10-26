@@ -18,6 +18,7 @@ namespace notifications {
 
 struct Options {
     ImTextureID icon = 0;
+    ImTextureID portrait = 0; // a player's round head (chat), drawn before the text; ringed in the prefix color
     std::string prefix;
     ImVec4 prefixColor{0.5f, 0.5f, 1.0f, 1.0f};
     std::string message;

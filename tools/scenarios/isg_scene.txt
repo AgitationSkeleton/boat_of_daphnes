@@ -1,0 +1,52 @@
+description Infinite Sword Glitch: a scene change ends it (stab, talk, then a warp to Outset: no live sword in the new stage)
+# As isg_talk up to the end of the talk, then a warp.
+timeout 900
+save 2-Pictobox
+options oot_crouch_stab
+cvar gEnhancements.SkipText 1
+env BLUEWAKE_OOT_KNOBS oot_stab_isg=1,oot_stab_speed=0.5
+env BLUEWAKE_OOT_LOG 1
+env BLUEWAKE_TEST_BUNNY 1
+size 640x480
+start load
+wait link
+collect swords
+warp sea 11 0
+teleport sea 11 471 150 -198501 0
+wait 90
+press B 6
+wait 40
+press B 6
+wait 60
+hold R
+wait 30
+peek actor:0xA9+0x31D8/4 proc_before
+press B 3
+wait 6
+release R
+wait 6
+dumpframes 16
+press A 6
+wait 40
+peek actor:0xA9+0x31D8/4 proc_in_talk
+peek actor:0xA9+0x3560/2 equip_in_talk
+peek actor:0xA9+0x29C/4 noreset_in_talk
+shot in_talk
+hold B
+wait noevent 1800
+release B
+log TALK_OVER
+wait 40
+peek actor:0xA9+0x31D8/4 proc_after_talk
+peek actor:0xA9+0x3560/2 equip_after_talk
+peek actor:0xA9+0x29C/4 noreset_after_talk
+log WARPING
+warp sea 44 0
+wait 90
+log LANDED
+wait 60
+peek actor:0xA9+0x29C/4 noreset_after_warp
+peek actor:0xA9+0x3560/2 equip_after_warp
+console spawn kotubo 0xFFFFFFFF 60
+wait 40
+console actors kotubo

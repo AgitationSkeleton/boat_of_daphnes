@@ -118,10 +118,10 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${BOD_DIR}/third_
 set(BOD_UI_SOURCES
     win_settings.cpp input_editor.cpp gba_window.cpp dev_windows.cpp ship_menu.cpp ship_menu_classic.cpp
     cosmetics_editor.cpp link_colors.cpp model_colors.cpp gx_texture.cpp png_decode.cpp anchor.cpp
-    anchor_client.cpp anchor_content.cpp item_found.cpp notifications.cpp item_tracker.cpp mods.cpp rarc.cpp
+    anchor_client.cpp anchor_content.cpp head_render.cpp chat_portrait.cpp item_found.cpp notifications.cpp item_tracker.cpp mods.cpp rarc.cpp
     hud_colors.cpp randomizer_menu.cpp rando_pack.cpp rando_saves.cpp rando_flow.cpp fs_art.cpp fs_blo.cpp
     fs_font.cpp anchor_carry.cpp check_tracker.cpp input_viewer.cpp player_parts.cpp content_validate.cpp
-    voice_bank.cpp gb_browser.cpp discord_rpc.cpp)
+    voice_bank.cpp gb_browser.cpp discord_rpc.cpp updater.cpp)
 # What differs per operating system (platform/bod_platform.h): the platform layer, the crash reporter, the GameCube adapter.
 if (WIN32)
     list(APPEND BOD_UI_SOURCES win_crash.cpp adapter_driver.cpp platform/platform_win32.cpp)
@@ -166,7 +166,7 @@ endif ()
 set_source_files_properties(${BOD_DIR}/runtime/host/src/gba_link.c PROPERTIES COMPILE_DEFINITIONS WIN32_LEAN_AND_MEAN)
 target_link_libraries(bod_ui PRIVATE aurora::core aurora::gx aurora::pad imgui xxhash bluewake_archive mgba)
 if (WIN32)
-    target_link_libraries(bod_ui PRIVATE winmm bcrypt comctl32 comdlg32 winhttp setupapi shell32 ole32)
+    target_link_libraries(bod_ui PRIVATE winmm bcrypt crypt32 comctl32 comdlg32 winhttp setupapi shell32 ole32)
 else ()
     # The platform layer's sockets and TLS (Anchor, the model browser's downloads) use the system's OpenSSL.
     find_package(OpenSSL REQUIRED)

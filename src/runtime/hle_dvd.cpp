@@ -424,6 +424,15 @@ bool dvdOpenUnion(const std::string& randoIso, const std::string& gameIso, const
 }
 
 // Path lookups and directory changes stay native; with SA2_DVD_LOG they are logged.
+// Archives opened from the disc (message files come in them): the scans for message files look only after one.
+std::atomic<u32> g_archiveOpens{0};
+u32 archiveOpens() { return g_archiveOpens.load(std::memory_order_relaxed); }
+bool ArchiveWatch::due() {
+    if (const u32 n = archiveOpens(); n != seen) seen = n, left = 5;  // (a file arrives a little after its archive opens)
+    if (left <= 0) return false;
+    left--;
+    return true;
+}
 HLE(DVDConvertPathToEntrynum) {
     static const bool s_log = std::getenv("SA2_DVD_LOG") != nullptr;
     // Testing: SA2_STAGE=<level>[:<character>] - whichever stage the game loads (the attract demo's
@@ -454,6 +463,8 @@ HLE(DVDConvertPathToEntrynum) {
     }
     const std::string path = gstr(c.r[3]);
     callOriginal(c, "DVDConvertPathToEntrynum");
+    if (path.size() > 4 && (path.compare(path.size() - 4, 4, ".arc") == 0 || path.compare(path.size() - 4, 4, ".ARC") == 0))
+        g_archiveOpens.fetch_add(1, std::memory_order_relaxed);
     if (s_log) log("[dvd] path '%s' -> entry %d\n", path.c_str(), s32(c.r[3]));
     if (s_log && s32(c.r[3]) < 0) {
         // Is the FST in guest memory still the one read from the disc?
@@ -602,3 +613,5 @@ extern "C" rt::u8* dvd_read_image_file(const char* path, rt::u32* size) {
     if (size) *size = w(2);
     return out;
 }
+
+extern "C" unsigned bluewake_archive_opens(void) { return rt::archiveOpens(); }

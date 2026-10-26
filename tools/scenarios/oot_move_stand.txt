@@ -1,0 +1,39 @@
+description OoT-style movement from standing: pushing the stick sideways faces it in the same frame and starts the run (no turn on the spot)
+options oot_move
+env BLUEWAKE_OOT_LOG 1
+save 2-Pictobox
+start load
+wait link
+warp Omori 0 0
+wait link
+wait 60
+peek actor:0xA9+0x20E/2 shape0
+log push
+stick 127 0
+wait 1
+peek actor:0xA9+0x31D8/4 proc1
+peek actor:0xA9+0x20E/2 shape1
+peek actor:0xA9+0x34E8/2 stick1
+wait 1
+peek actor:0xA9+0x31D8/4 proc2
+peek actor:0xA9+0x20E/2 shape2
+peek actor:0xA9+0x34E8/2 stick2
+wait 1
+peek actor:0xA9+0x31D8/4 proc3
+peek actor:0xA9+0x20E/2 shape3
+peek actor:0xA9+0x34E8/2 stick3
+wait 1
+peek actor:0xA9+0x31D8/4 proc4
+peek actor:0xA9+0x20E/2 shape4
+peek actor:0xA9+0x34E8/2 stick4
+wait 1
+peek actor:0xA9+0x31D8/4 proc5
+peek actor:0xA9+0x20E/2 shape5
+peek actor:0xA9+0x34E8/2 stick5
+wait 1
+peek actor:0xA9+0x31D8/4 proc6
+peek actor:0xA9+0x20E/2 shape6
+peek actor:0xA9+0x34E8/2 stick6
+expect \[oot\] move start
+expect_not \[oot\] move turn on the spot
+expect_peek proc4 == 6

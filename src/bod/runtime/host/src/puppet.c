@@ -11,6 +11,7 @@
 #include "gxruntime/guest_memory_dirty.h"
 #include "gxruntime/platform.h"
 #include "bunny_hood.h"
+#include "game_options.h"
 
 #include <math.h>
 #include <stdatomic.h>
@@ -331,6 +332,7 @@ static void mat_from_xf(const Xf* x, Mat34* m) {
 static const uint8_t kProcVoice[] = {255,255,42,255,255,255,255,255,255,255,5,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,7,8,255,255,7,255,6,255,13,255,255,5,255,255,11,255,255,255,32,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,0,0,0,0,1,1,1,1,1,1,1,1,7,1,255,255,1,7,1,255,1,255,255,255,255,37,1,255,6,1,255,7,1,6,255,255,255,2,2,3,255,255,4,44,255,255,16,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,6,255,255,255,255,255,255,255,255,255,255,255,255,7,5,255,255,6,255,0,255,255,255,255,255,36,255,255,255,255,255,255,7,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,28,255,255,255,255,255,255,255,19,255,255,255,255,255,255,28,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255};
 
 // And the sound effect that goes with a few: Link's damage cries, the crash of a roll into a wall, the swish of a cut.
+enum { PROC_STAB = 0x1000 }; // a pseudo-proc for a crouch stab (+ its kind) in the sounds below
 static u32 proc_effect(unsigned proc) {
     switch (proc) {
     case 0x66: case 0x67: return 0x282Du; // JA_SE_LK_DAMAGE_NORMAL
@@ -403,6 +405,9 @@ typedef struct Pose {
     } line[2];
     bool has_time;   // the sender's clock (ms, wraps) when it captured this pose: playback follows it, not the network's jitter
     uint32_t wtime;
+    // His last crouch stab (a stab stays in the crouch's proc, so the proc cannot tell): 0 none, 1 stab, 2 power stab, kept in the
+    // pose for about 0.7 s; the serial counts his swings, so that a puppet makes the sword's swish and his voice once per stab.
+    uint8_t swing_kind, swing_serial, swing_flags;
 } Pose;
 
 static int16_t q15(float v) {
@@ -452,7 +457,7 @@ static const uint8_t* xf_get(const uint8_t* at, Xf* x, bool scaled) {
 }
 
 // The extension blocks after the proc: tag (u8), length (u16), contents. A reader skips tags it does not know.
-enum { EXT_FACE = 1, EXT_ATTACH = 2, EXT_TIME = 3, EXT_LINE = 4, EXT_SAIL = 5, EXT_EYE = 6, EXT_BOMB = 7 };
+enum { EXT_FACE = 1, EXT_ATTACH = 2, EXT_TIME = 3, EXT_LINE = 4, EXT_SAIL = 5, EXT_EYE = 6, EXT_BOMB = 7, EXT_SWING = 8 };
 
 static uint8_t* ext_begin(uint8_t* at, uint8_t tag) {
     at[0] = tag;
@@ -539,6 +544,14 @@ static uint8_t* ext_encode(const Pose* p, uint8_t* at, uint8_t* limit) {
         }
         at = ext_end(head, at);
     }
+    if (p->swing_kind != 0 && at + 6 <= limit) {
+        uint8_t* head = at;
+        at = ext_begin(at, EXT_SWING);
+        *at++ = p->swing_kind;
+        *at++ = p->swing_serial;
+        *at++ = p->swing_flags; // bit 0: the Master Sword
+        at = ext_end(head, at);
+    }
     if (p->att_n != 0) {
         uint8_t* head = at;
         at = ext_begin(at, EXT_ATTACH);
@@ -578,6 +591,7 @@ static void ext_decode(const uint8_t* at, const uint8_t* end, Pose* p) {
     p->has_time = false;
     p->line_n = 0;
     p->sail = false;
+    p->swing_kind = p->swing_serial = p->swing_flags = 0;
     while (at + 3 <= end) {
         const uint8_t tag = at[0];
         const size_t len = (uint16_t)get16(at + 1);
@@ -596,6 +610,10 @@ static void ext_decode(const uint8_t* at, const uint8_t* end, Pose* p) {
                 for (int k = 0; k < 3; ++k, b += 2)
                     p->sail_pt[i][k] = get16(b);
             p->sail = true;
+        } else if (tag == EXT_SWING && len >= 3) {
+            p->swing_kind = block[0] <= 2 ? block[0] : 1;
+            p->swing_serial = block[1];
+            p->swing_flags = block[2];
         } else if (tag == EXT_LINE && len >= 1) {
             for (int i = 0; i < block[0] && i < 2 && block + 1 + 13 * (i + 1) <= block_end; ++i) {
                 const uint8_t* b = block + 1 + 13 * i;
@@ -782,6 +800,9 @@ static void pose_lerp(const Pose* a, const Pose* b, float f, Pose* out) {
     out->proc = nearer->proc;
     xf_lerp(&a->sword_xf, &b->sword_xf, f, &out->sword_xf);
     xf_lerp(&a->shield_xf, &b->shield_xf, f, &out->shield_xf);
+    out->swing_kind = nearer->swing_kind;
+    out->swing_serial = nearer->swing_serial;
+    out->swing_flags = nearer->swing_flags;
     out->face_n = nearer->face_n;
     memcpy(out->face, nearer->face, sizeof out->face);
     out->eye_n = nearer->eye_n;
@@ -917,6 +938,7 @@ typedef struct Remote {
     double stock_until_ms;  // an eviction: stock until then (room was given to a more active player)
     double retry_custom_ms; // then the custom models are asked for again
     int last_proc;      // the proc last drawn (-1: none yet), to hear when it changes
+    int last_swing;     // the serial of the last crouch stab seen (-1: none seen yet: a stab already going on at the first pose is not heard)
     bool model_changed; // a new body model arrived: a puppet already made is made again
     float voice_pitch;  // the owner's Link Voice Pitch as a ratio (0: normal)
     bool map;           // in my stage and room: an arrow on the minimap, whether or not the puppet is drawn
@@ -1008,6 +1030,25 @@ static double now_ms(void) {
 #endif
 }
 
+// A system sound the app asks for (a chat message's chime, an item-share's): the game starts it from the draw fiber, in play, where
+// mDoAud_seStart is safe to call and the game's own Sound Effects volume applies. Written by the app's thread, read by the game's.
+enum { SE_QUEUE = 8, SE_STALE_MS = 2000 };
+static u32 g_se_id[SE_QUEUE];
+static double g_se_at[SE_QUEUE];
+static atomic_uint g_se_head, g_se_tail; // read at head, written at tail
+static atomic_uint g_se_sent;
+
+void bluewake_puppet_play_se(unsigned id) {
+    const unsigned tail = atomic_load(&g_se_tail);
+    if (tail - atomic_load(&g_se_head) >= SE_QUEUE)
+        return; // a burst of messages: the rest are dropped
+    g_se_id[tail % SE_QUEUE] = id;
+    g_se_at[tail % SE_QUEUE] = now_ms();
+    atomic_store(&g_se_tail, tail + 1u);
+}
+static bool se_pending(void) { return atomic_load(&g_se_head) != atomic_load(&g_se_tail); }
+unsigned bluewake_puppet_se_started(void) { return atomic_load(&g_se_sent); }
+
 void bluewake_puppet_set_sounds(bool on) { atomic_store(&g_sounds, on); }
 
 void bluewake_puppet_enable(bool capture, bool draw) {
@@ -1055,6 +1096,7 @@ static Remote* find_remote(int id, bool create) {
         memset(free_slot, 0, sizeof *free_slot);
         free_slot->id = id;
         free_slot->last_proc = -1;
+        free_slot->last_swing = -1;
         // A slot used before still holds that player's puppet (model, colours): made again for this one.
         free_slot->model_changed = true;
         return free_slot;
@@ -1808,6 +1850,10 @@ static bool capture_pose(CPUState* cpu, Pose* pose) {
     capture_attachments(cpu, player, &inv, pose);
     pose->has_time = true;
     pose->wtime = (uint32_t)now_ms();
+    {
+        bool stabbing;
+        bluewake_swing_state(&pose->swing_kind, &pose->swing_serial, &pose->swing_flags, &stabbing);
+    }
     return true;
 }
 
@@ -1861,6 +1907,7 @@ typedef struct Item {
     float pos[3];
     uint8_t flags, sword, shield, hands;
     int voice_proc; // the proc that just started (-1: none)
+    uint8_t swing;  // a crouch stab that just started (0 none, 1 stab, 2 power stab): the swish and his voice
     int voice_force; // testing: the voice id to make (-1: the proc's)
     float voice_pitch; // its owner's voice pitch (ratio, 0: normal)
     Mat34 sword_mtx, shield_mtx; // world
@@ -3805,6 +3852,16 @@ static void draw_body(GuestCoro* co, void* arg) {
         if (guest_ptr(block))
             g_chart_mem = block;
     }
+    for (unsigned head = atomic_load(&g_se_head); head != atomic_load(&g_se_tail); head = atomic_load(&g_se_head)) {
+        const u32 id = g_se_id[head % SE_QUEUE];
+        const bool fresh = now_ms() - g_se_at[head % SE_QUEUE] < SE_STALE_MS;
+        atomic_store(&g_se_head, head + 1u);
+        if (fresh && guest_ptr(mem_read32(cpu, JAI_BASIC))) { // the game's audio is up
+            call(co, FN_SE_START, id, 0, 0, 0);
+            atomic_fetch_add(&g_se_sent, 1u);
+            fprintf(stderr, "[puppet] system sound %04X started\n", id);
+        }
+    }
     if (g_cap_pending) {
         g_cap_pending = false;
         if (g_scratch == 0u) {
@@ -4019,14 +4076,15 @@ static void draw_body(GuestCoro* co, void* arg) {
         }
         for (int i = 0; i < 3; ++i)
             write_float(cpu, g->pos + 4u * (u32)i, it->pos[i]);
-        if (it->voice_proc >= 0) {
+        if (it->voice_proc >= 0 || it->swing != 0) {
             // What he just started doing, as the game makes it at that place: his voice (the local voice bank: a
             // peer's own voice pack is read once when audio starts and cannot be played) and a sound effect.
             for (int i = 0; i < 3; ++i)
                 write_float(cpu, g->pos + 0x10u + 4u * (u32)i, it->pos[i] + (i == 1 ? 115.0f : 0.0f));
             const u32 jai = mem_read32(cpu, JAI_BASIC);
-            const unsigned proc = (unsigned)it->voice_proc;
-            const u32 voice_id = it->voice_force >= 0 ? (u32)it->voice_force : proc < sizeof kProcVoice ? (u32)kProcVoice[proc] : 0xFFu;
+            // A crouch stab is a pseudo-proc: the light voice of a cut (voiceStart(0)), the heavier one (1) for a power stab, and the swish.
+            const unsigned proc = it->voice_proc >= 0 ? (unsigned)it->voice_proc : PROC_STAB + it->swing;
+            const u32 voice_id = it->voice_force >= 0 ? (u32)it->voice_force : proc >= PROC_STAB ? (proc == PROC_STAB + 2u ? 1u : 0u) : proc < sizeof kProcVoice ? (u32)kProcVoice[proc] : 0xFFu;
             // A peer whose voice bank is not the one the game loaded sounds from their own, decoded by the app and mixed into the
             // output at the puppet's place; the game's voice is then not made.
             bool own_bank = false;
@@ -4044,12 +4102,12 @@ static void draw_body(GuestCoro* co, void* arg) {
                 bluewake_guest_call(co, FN_LINK_VOICE_START, jai, voice_id, g->pos + 0x10u, vowel & 0xFFu, 0, 0);
                 bluewake_voice_pitch_set_scope(0.0f);
             }
-            const u32 effect = proc_effect(proc);
+            const u32 effect = proc >= PROC_STAB ? 0x2800u : proc_effect(proc);
             if (it->voice_force >= 0)
                 fprintf(stderr, "[puppet] sweep: voice id %d at retrace %llu\n", it->voice_force, bluewake_host_retrace_count());
-            if (effect != 0u || (proc < sizeof kProcVoice && kProcVoice[proc] != 0xFFu))
+            if (effect != 0u || proc >= PROC_STAB || (proc < sizeof kProcVoice && kProcVoice[proc] != 0xFFu))
                 fprintf(stderr, "[puppet] sounds for player %d proc 0x%X: voice %u (%s, %s bank), effect %04X\n", it->id, proc,
-                        proc < sizeof kProcVoice ? kProcVoice[proc] : 255u, it->voice[0] != '\0' ? it->voice : "game's voice",
+                        proc >= PROC_STAB ? voice_id : proc < sizeof kProcVoice ? kProcVoice[proc] : 255u, it->voice[0] != '\0' ? it->voice : "game's voice",
                         own_bank ? "played from its own voice bank" : it->voice_local ? "the voice bank matches" : "the local game voice bank plays: its own bank is not available", effect);
             if (effect != 0u)
                 call(co, FN_SE_START, effect, g->pos + 0x10u, 0, 0);
@@ -4599,7 +4657,7 @@ u32 bluewake_puppet_hook(CPUState* cpu, u32 id) {
 
     const bool capture = atomic_load(&g_capture);
     const bool draw = atomic_load(&g_draw);
-    if (!capture && !draw)
+    if (!capture && !draw && !se_pending())
         return 0u;
     // A new play scene: the old one's objects went with the delete hook (or
     // are lost with the scene's own memory).
@@ -4635,7 +4693,7 @@ u32 bluewake_puppet_hook(CPUState* cpu, u32 id) {
     minimap_pass(cpu);
     chart_pass(cpu);
     if (!draw) {
-        if (!map_alloc_wanted() && !chart_alloc_wanted() && !g_cap_pending)
+        if (!map_alloc_wanted() && !chart_alloc_wanted() && !g_cap_pending && !se_pending())
             return 0u;
         g_work.count = 0; // the draw fiber only makes the minimap's cursor block
         return bluewake_coro_step(g_coro_draw, cpu, SITE_DRAW, NULL);
@@ -4643,8 +4701,12 @@ u32 bluewake_puppet_hook(CPUState* cpu, u32 id) {
     const u32 player = mem_read32(cpu, PLAYER);
     const u32 cl = guest_ptr(player) ? mem_read32(cpu, player + PLAYER_CL_MODEL) : 0u;
     const u32 model_data = guest_ptr(cl) ? mem_read32(cpu, cl + MODEL_DATA) : 0u;
-    if (!guest_ptr(model_data))
-        return 0u;
+    if (!guest_ptr(model_data)) {
+        if (!se_pending())
+            return 0u;
+        g_work.count = 0; // no Link yet: only the sound
+        return bluewake_coro_step(g_coro_draw, cpu, SITE_DRAW, NULL);
+    }
     Work* w = &g_work;
     w->count = 0;
     w->model_data = model_data;
@@ -4694,7 +4756,19 @@ u32 bluewake_puppet_hook(CPUState* cpu, u32 id) {
         }
         const bool stock_now = now_ms() < r->stock_until_ms;
         it->voice_proc = -1;
+        it->swing = 0;
         it->voice_pitch = r->voice_pitch;
+        // A crouch stab does not change his proc: the swing's serial does. The first pose seen only sets the baseline: a stab that
+        // was already going on when he came into view is not made again, the next one is (-2).
+        if (r->last_swing == -1) {
+            r->last_swing = p.swing_kind != 0 ? (int)p.swing_serial : -2;
+        } else if (p.swing_kind != 0 && r->last_swing != (int)p.swing_serial) {
+            if (atomic_load(&g_sounds))
+                it->swing = p.swing_kind;
+            if (ENV_SET("BLUEWAKE_PUPPET_PROC_LOG"))
+                fprintf(stderr, "[puppet] player %d swing %d -> %u (kind %u)\n", r->id, r->last_swing, (unsigned)p.swing_serial, (unsigned)p.swing_kind);
+            r->last_swing = p.swing_serial;
+        }
         if (r->last_proc >= 0 && r->last_proc != (int)p.proc && p.proc != 0xFFFFu && atomic_load(&g_sounds))
             it->voice_proc = (int)p.proc;
         if (r->last_proc != (int)p.proc && ENV_SET("BLUEWAKE_PUPPET_PROC_LOG"))
@@ -4755,7 +4829,7 @@ u32 bluewake_puppet_hook(CPUState* cpu, u32 id) {
         }
     }
     unlock();
-    if (w->count == 0 && !map_alloc_wanted() && !chart_alloc_wanted() && !g_cap_pending && !bluewake_pvp_wants_fiber() && !bluewake_carry_wants_fiber() && !bombs_active())
+    if (w->count == 0 && !map_alloc_wanted() && !chart_alloc_wanted() && !g_cap_pending && !se_pending() && !bluewake_pvp_wants_fiber() && !bluewake_carry_wants_fiber() && !bombs_active())
         return 0u;
     return bluewake_coro_step(g_coro_draw, cpu, SITE_DRAW, NULL);
 }

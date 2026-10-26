@@ -1,0 +1,33 @@
+description Draw Into a Stab: with the sword sheathed, R is the plain crouch (proc 0xE); B there raises the shield (proc 0xC), draws the sword and stabs
+timeout 200
+save 2-Pictobox
+options oot_crouch_stab
+env BLUEWAKE_OOT_KNOBS oot_stab_draw=1
+env BLUEWAKE_OOT_LOG 1
+size 1280x960
+start load
+wait link
+collect swords
+warp sea 44 0
+teleport sea 44 -201622 168 312243 -2003
+wait 60
+cstick -127 0 27
+wait 30
+hold R
+wait 30
+peek actor:0xA9+0x31D8/4 proc_crouch
+peek actor:0xA9+0x3560/2 equip_before
+dumpframes 16
+press B 4
+wait 20
+peek actor:0xA9+0x31D8/4 proc_after
+peek actor:0xA9+0x3560/2 equip_after
+wait 20
+release R
+wait 20
+expect \[oot\] draw into a stab
+expect \[oot\] stab 1 starts
+expect_peek proc_crouch == 0xE
+expect_peek equip_before == 0x100
+expect_peek proc_after == 0xC
+expect_peek equip_after == 0x103

@@ -1,0 +1,20 @@
+description Look: MM jump flip 1 (1 front flip, 2 side somersault) off Outset's dock end, its frames dumped from the side
+options mm_momentum,mm_flips
+env BLUEWAKE_OOT_LOG 1
+env BLUEWAKE_MM_FLIP 1
+size 1280x960
+save 2-Pictobox
+start load
+wait link
+warp sea 44 0
+wait 60
+teleport sea 44 -201622 168 312243 30765
+wait 40
+stick 0 127
+wait 4
+cstick 127 0 20
+dumpframes 44
+wait 50
+stick 0 0
+wait 30
+expect \[mm\] jump 1

@@ -1,0 +1,35 @@
+description A vanilla file's name entry after a randomizer one in the same file select: the title is the game's "Name Entry", not the seed's "Seed hash:" (the switch in the Name scene left the seed's title: user 2026-10-25). Needs BLUEWAKE_RANDOMIZER_DIR with seed 8440614904 (local/scratch/rando_test).
+windowed
+size 1280x720
+save 2-Pictobox
+env BLUEWAKE_TEST_SCRIPT_UI_PAD 1
+cvar gRandomizer.LastSeed "8440614904"
+cvar gRandomizer.PlaySeed "8440614904"
+timeout 400
+start fileselect 1
+wait 120
+press A 8
+wait 100
+press RIGHT 8
+wait 60
+press A 8
+wait 120
+winshot rando_menu
+press A 8
+wait 400
+press A 8
+wait 200
+winshot name_rando
+press B 8
+wait 200
+winshot list_again
+press A 8
+wait 100
+press LEFT 8
+wait 60
+press A 8
+wait 400
+press A 8
+wait 200
+winshot name_vanilla
+log STEP done

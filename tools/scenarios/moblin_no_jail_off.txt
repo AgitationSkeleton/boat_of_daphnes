@@ -1,0 +1,17 @@
+description Disable Moblin Stealth Behavior off: with no sword in the first-visit Forsaken Fortress the Moblins are in jail mode (rouya_mode 1), as in the game
+# rouya_mode is d_a_mo2's .bss+0x5A (the module's sections in the log's "[rel] linked module 234" line; 6@80F90360 here)
+timeout 400
+save 2-Pictobox
+options
+size 640x480
+start load
+wait link
+poke 0x803C4CBC=0/1
+warp MajyuE 0 0 0
+wait link
+wait 90
+console actors mo2
+peek 0x80F903BA/1 rouya_mode
+peek 0x80A9A6A8/4 mo2_params
+peek 0x80A9A86C/4 mo2_attention
+expect_peek rouya_mode == 1

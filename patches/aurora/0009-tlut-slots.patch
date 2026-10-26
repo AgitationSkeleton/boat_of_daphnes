@@ -1,0 +1,12 @@
+diff --git a/lib/gx/gx.hpp b/lib/gx/gx.hpp
+--- a/lib/gx/gx.hpp
++++ b/lib/gx/gx.hpp
+@@ -50,7 +50,7 @@
+ constexpr bool UseReversedZ = true;
+ 
+ constexpr u32 MaxTextures = GX_MAX_TEXMAP;
+-constexpr u32 MaxTluts = 20;
++constexpr u32 MaxTluts = 32; // (Boat of Daphnes: 20 + J3D's eight per-map palette regions, and room)
+ constexpr u32 MaxTevStages = GX_MAX_TEVSTAGE;
+ constexpr u32 MaxColorChannels = 4;
+ constexpr u32 MaxTevRegs = 4; // TEVPREV, TEVREG0-2

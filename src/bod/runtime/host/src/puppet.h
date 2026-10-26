@@ -84,6 +84,11 @@ bool bluewake_puppet_drawn(int id, float head[3]);
 bool bluewake_puppet_tag(int id, float weight, float ndc[3]);
 // Whether puppets make Link's voice and sound effects as they start actions (rolls, jumps, cuts, damage).
 void bluewake_puppet_set_sounds(bool on);
+// Any thread: starts a game system sound (JAZelAudio_SE.h: 0x0830 JA_SE_MSEL_CURSOR, ...) at the game's next frame in play, at the game's
+// Sound Effects volume, as mDoAud_seStart(id, 0, 0, 0). Up to 8 wait; one that has waited 2 s, or arrives while the game's audio is not
+// up (title, file select, loading), is dropped. bluewake_puppet_se_started counts the ones started (for the log and tests).
+void bluewake_puppet_play_se(unsigned id);
+unsigned bluewake_puppet_se_started(void);
 // Where the puppets' fast pool lies in a MEM1 array of this size (32 MB: the top of the dynamic REL window; 64 MB: everything
 // above 0x82000000); false when none.
 bool bluewake_puppet_fast_range(u32 ram_size, u32* base, u32* bytes);

@@ -1,0 +1,22 @@
+description Full-screen overlays at a wide aspect: the telescope's darkening, the pause menu, a scene change's fade; run with size per aspect
+save 2-Pictobox
+start load
+wait link
+give telescope
+equip Y telescope
+teleport sea 11 -1985 300 -200800 0
+wait link
+wait 60
+press Y 10
+wait 90
+shot telescope
+press B 10
+wait 60
+press START 10
+wait 90
+shot pause
+press START 10
+wait 60
+warp sea 11 0
+dumpframes 40
+wait 100

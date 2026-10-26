@@ -395,4 +395,6 @@ void Process::Kill() {
         ::kill(pid, SIGKILL);
 }
 
+bool UsbDevicePresent(unsigned short, unsigned short) { return true; }
+
 }  // namespace bodplat

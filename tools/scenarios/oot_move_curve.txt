@@ -1,0 +1,55 @@
+description OoT-style movement: steady running speed at four stick tilts follows OoT's curve (log [oot] move ... target)
+options oot_move
+env BLUEWAKE_OOT_LOG 1
+save 2-Pictobox
+start load
+wait link
+warp Omori 0 0
+wait link
+wait 60
+warp Omori 0 0
+wait link
+wait 40
+log stick 40
+stick 0 40
+wait 60
+peek actor:0xA9+0x35BC/4 speed_40
+peek actor:0xA9+0x35B0/4 dist_40
+peek actor:0xA9+0x31D8/4 proc_40
+stick 0 0
+wait 40
+warp Omori 0 0
+wait link
+wait 40
+log stick 64
+stick 0 64
+wait 60
+peek actor:0xA9+0x35BC/4 speed_64
+peek actor:0xA9+0x35B0/4 dist_64
+peek actor:0xA9+0x31D8/4 proc_64
+stick 0 0
+wait 40
+warp Omori 0 0
+wait link
+wait 40
+log stick 90
+stick 0 90
+wait 60
+peek actor:0xA9+0x35BC/4 speed_90
+peek actor:0xA9+0x35B0/4 dist_90
+peek actor:0xA9+0x31D8/4 proc_90
+stick 0 0
+wait 40
+warp Omori 0 0
+wait link
+wait 40
+log stick 127
+stick 0 127
+wait 60
+peek actor:0xA9+0x35BC/4 speed_127
+peek actor:0xA9+0x35B0/4 dist_127
+peek actor:0xA9+0x31D8/4 proc_127
+stick 0 0
+wait 40
+expect \[oot\] move start
+expect_peek proc_127 == 6

@@ -1,0 +1,32 @@
+description Keep Held Weapons off: the Forsaken Fortress door drops the stick, as the game does (keep_weapon_ff_door with the option on)
+timeout 900
+save 2-Pictobox
+options
+env BLUEWAKE_TEST_BUNNY 1
+size 640x480
+start load
+wait link
+warp majroom 0 3
+wait 120
+console spawn Boko 0 60
+wait 60
+press A 6
+wait 120
+peek actor:0xA9+0x3560/2 equip_before
+expect_peek equip_before == 0x101
+shot before
+stick 0 -60
+wait 25
+stick 0 0
+wait 20
+shot at_door
+press A 6
+wait 40
+peek actor:0xA9+0x3560/2 equip_in_door
+shot in_door
+wait 600
+peek actor:0xA9+0x3560/2 equip_after
+console actors Boko
+shot after
+expect_peek equip_in_door == 0x100
+expect_peek equip_after == 0x100

@@ -35,3 +35,10 @@ __pycache__/
 
 # The Anchor server's packages
 server/anchor/node_modules/
+
+# The Anchor Node server: generated worker copy, installed packages, the server's own settings and data
+/server/anchor-node/node_modules/
+/server/anchor-node/worker/
+/server/anchor-node/data/
+/server/anchor-node/logs/
+/server/anchor-node/config.json

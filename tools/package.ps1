@@ -99,6 +99,8 @@ foreach ($f in 'README.md', 'LICENSE.md') { if (Test-Path $f) { Put $f $f } }
 if (Test-Path "res\THIRD_PARTY_NOTICES.txt") { Put "res\THIRD_PARTY_NOTICES.txt" "THIRD_PARTY_NOTICES.txt" }
 if (Test-Path "src\bod\LICENSE") { Put "src\bod\LICENSE" "licenses\boat-of-daphnes-LICENSE.txt" }
 Put "assets\fonts\OFL.txt" "licenses\RocknRollOne-OFL.txt"
+# the version Settings > Updates compares with the newest release (v2026.10.24c -> 2026.10.24c)
+Set-Content "$out\version.txt" ($Version -replace '^v', '') -Encoding ascii
 
 # --- checks ---
 $forbidden = @('tww_game.dll', 'tww_game_rando.dll', 'tww_game.txt', 'tww_game_rando.txt', 'tww_game_rando.diff', 'game',

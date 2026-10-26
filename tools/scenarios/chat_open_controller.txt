@@ -1,0 +1,25 @@
+description The open chat line takes the keyboard only: with it open (the log's "chat line open"), the scripted controller's stick still runs Link
+# Needs a local Anchor server on 127.0.0.1:8826 (server/anchor: npx wrangler dev --port 8826)
+windowed
+timeout 240
+save 2-Pictobox
+env BLUEWAKE_TEST_CHAT_OVERLAY typing
+cvar gNetwork.Anchor.Enabled 1
+cvar gNetwork.Anchor.Host 127.0.0.1:8826
+cvar gNetwork.Anchor.Room padch
+cvar gNetwork.Anchor.Name Tester
+start load
+wait link
+warp Omori 0 0
+wait link
+log GAME READY
+wait 1500
+peek actor:0xA9+0x1F8/4 x_before
+peek actor:0xA9+0x200/4 z_before
+stick 0 60
+wait 60
+peek actor:0xA9+0x35BC/4 speed_chat_open
+peek actor:0xA9+0x1F8/4 x_after
+peek actor:0xA9+0x200/4 z_after
+winshot open
+stick 0 0

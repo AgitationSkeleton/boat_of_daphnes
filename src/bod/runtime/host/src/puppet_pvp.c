@@ -1,6 +1,7 @@
 // Other players you can bump into, target and fight: see puppet_pvp.h.
 #include "puppet_pvp.h"
 #include "puppet_carry.h"
+#include "game_options.h"
 
 #include "gxruntime/platform.h"
 
@@ -64,6 +65,7 @@ enum {
     HIT_RADIUS = 45,                         // the attack collider's, laid on Link's side facing the attacker
     HIT_PUSH = 12,                           // its vector's length (knockback speed)
     HIT_COOLDOWN_MS = 700,
+    STAB_HIT_COOLDOWN_MS = 350,              // between the hits of two different crouch-stab swings (a stab swings about every 270 ms)
     EVENT_GRACE_MS = 1500,                   // and for this long after an event ends
     SAFE_MS = 3000,                          // no hits for this long after a scene starts
 
@@ -91,6 +93,7 @@ typedef struct Target {
     uint32_t armed;           // the frame its body was last put into the checks
     bool tg_armed;
     double last_hit_ms;
+    unsigned hit_swing;       // the crouch stab's serial of the last hit, plus one (0: it was not a stab)
     uint32_t pid, actor;      // its Dummy actor
     uint32_t pid_frame;
 } Target;
@@ -559,9 +562,18 @@ void bluewake_pvp_draw(CPUState* cpu, uint32_t scene_id, uint32_t menu_flag) {
         // Link's own colliders (his sword), and the things he throws and shoots; not what a stage or an enemy hits with.
         if (actor != player && (type & AT_FROM_LINK) == 0u)
             continue;
-        if (mode == BLUEWAKE_PVP_OFF || !t->hit_ok || !safe_now(cpu) || now - t->last_hit_ms < HIT_COOLDOWN_MS)
+        // A crouch stab (mine, still playing) is one hit per swing: the next swing needs only the short wait. Everything else
+        // keeps the one wait of 700 ms for a player (an older build's too: its hits all count as one swing there).
+        uint8_t swing_kind, swing_serial, swing_flags;
+        bool stabbing;
+        bluewake_swing_state(&swing_kind, &swing_serial, &swing_flags, &stabbing);
+        double cooldown = HIT_COOLDOWN_MS;
+        if (stabbing && t->hit_swing != (unsigned)swing_serial + 1u)
+            cooldown = STAB_HIT_COOLDOWN_MS;
+        if (mode == BLUEWAKE_PVP_OFF || !t->hit_ok || !safe_now(cpu) || now - t->last_hit_ms < cooldown)
             continue;
         t->last_hit_ms = now;
+        t->hit_swing = stabbing ? (unsigned)swing_serial + 1u : 0u;
         if (g_out_n >= (int)(sizeof g_out / sizeof g_out[0]))
             continue;
         BluewakePvpHit* h = &g_out[g_out_n++];

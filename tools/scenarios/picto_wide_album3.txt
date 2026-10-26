@@ -1,0 +1,38 @@
+description The Picto Box album with three recorded pictographs at a wide aspect: the side photos must reach the window's edges (take three photos, R, Swap Modes; run with size per aspect)
+save 2-Pictobox
+size 1550x637
+timeout 900
+start load
+wait link
+give picto_box
+equip Y picto_box
+teleport sea 11 -1985 300 -200800 0
+wait link
+wait 120
+press Y 20
+wait 300
+press A 10
+wait 300
+stick -127 0 15
+wait 30
+press A 10
+wait 240
+press A 10
+wait 300
+stick -127 0 15
+wait 30
+press A 10
+wait 240
+press A 10
+wait 300
+stick -127 0 15
+wait 30
+press A 10
+wait 240
+shot viewfinder
+press R 20
+wait 150
+shot album
+wait 120
+shot album_settled
+expect_not Failed assertion

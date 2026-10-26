@@ -99,6 +99,31 @@ void Frame(float scale, float fontScale) {
                 ImGui::Image(n.o.icon, ImVec2(kIcon * scale, kIcon * scale));
                 any = true;
             }
+            if (n.o.portrait != 0) {
+                const float h = ImGui::GetTextLineHeight() * 1.6f;
+                const ImVec2 at = ImGui::GetCursorScreenPos();
+                ImGui::Dummy(ImVec2(h, h));
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                const ImVec2 centre(at.x + h * 0.5f, at.y + h * 0.5f);
+                const ImVec4& c = n.o.prefixColor;
+                dl->AddCircleFilled(centre, h * 0.5f, ImGui::GetColorU32(ImVec4(c.x * 0.35f, c.y * 0.35f, c.z * 0.35f, 0.75f * alpha)));
+                dl->AddImageRounded(n.o.portrait, at, ImVec2(at.x + h, at.y + h), ImVec2(0, 0), ImVec2(1, 1),
+                                    ImGui::GetColorU32(ImVec4(1, 1, 1, alpha)), h * 0.5f);
+                dl->AddCircle(centre, h * 0.5f, ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, alpha)), 0, std::max(1.5f, 1.5f * scale));
+                any = true;
+            }
+            // With a portrait the text is placed at its middle, in a group: begun on the portrait's line (SameLine), the group kept
+            // that line's top and every later SameLine went back there, so the rest rode higher than the name (user 2026-10-25).
+            const bool grouped = n.o.portrait != 0;
+            ImVec2 below;
+            if (grouped) {
+                const float h = ImGui::GetTextLineHeight() * 1.6f;
+                const ImVec2 at = ImGui::GetItemRectMin();
+                below = ImGui::GetCursorScreenPos();
+                ImGui::SetCursorScreenPos(ImVec2(at.x + h + ImGui::GetStyle().ItemSpacing.x, at.y + (h - ImGui::GetTextLineHeight()) * 0.5f));
+                ImGui::BeginGroup();
+                any = false;
+            }
             auto part = [&](const std::string& text, const ImVec4& color) {
                 if (text.empty())
                     return;
@@ -110,6 +135,12 @@ void Frame(float scale, float fontScale) {
             part(n.o.prefix, n.o.prefixColor);
             part(n.o.message, n.o.messageColor);
             part(n.o.suffix, n.o.suffixColor);
+            if (grouped) {
+                ImGui::EndGroup();
+                const float y = ImGui::GetCursorScreenPos().y;
+                if (below.y - y - ImGui::GetStyle().ItemSpacing.y > 0)
+                    ImGui::Dummy(ImVec2(0, below.y - y - ImGui::GetStyle().ItemSpacing.y));
+            }
             n.height = ImGui::GetWindowSize().y;
         }
         ImGui::End();

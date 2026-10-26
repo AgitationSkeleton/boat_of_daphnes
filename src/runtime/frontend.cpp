@@ -29,6 +29,7 @@
 #include "gx/fifo.hpp"
 #include "window.hpp"
 #include "ui_pad.h"  // Boat of Daphnes (src/bod/runtime/host/src)
+#include "platform/bod_platform.h"
 #include "webgpu/gpu.hpp"
 
 #include <algorithm>
@@ -201,6 +202,18 @@ namespace {
 void pollPads() {
     PADStatus st[4]{};
     PADRead(st);
+    // The GameCube's L and R click at the end of the trigger's travel. Aurora's SDL path never sets those buttons from an
+    // analog trigger (only its GameCube-adapter path does), so pads whose triggers are axes (ZL/ZR on Switch-style pads,
+    // Xbox/PlayStation triggers) had no digital L/R: the game's analog uses (targeting, the shield) worked, but anything
+    // reading the click - the Picto Box's "Swap Modes", for one - did not. Same activation zone as the adapter's.
+    for (u32 p = 0; p < 4; p++) {
+        const PADDeadZones* z = PADGetDeadZones(p);
+        const u32 zoneL = z ? z->leftTriggerActivationZone : 31150, zoneR = z ? z->rightTriggerActivationZone : 31150;
+        if (st[p].err == PAD_ERR_NONE) {
+            if (u32(st[p].triggerLeft) * 32767u / 255u >= zoneL) st[p].button |= PAD_TRIGGER_L;
+            if (u32(st[p].triggerRight) * 32767u / 255u >= zoneR) st[p].button |= PAD_TRIGGER_R;
+        }
+    }
     {  // Boat of Daphnes' GameCube adapter (src/bod gc_adapter.c): its controllers merged in. Its pad state
        // (DolPadState) is PADStatus's first 11 bytes (Aurora's adds extButton), in 12-byte entries.
         u8 live[4][12] = {};
@@ -522,6 +535,16 @@ int runFrontend(int argc, char** argv, bool headless, u64 maxFrames, void (*star
     SDL_SetHint(SDL_HINT_APP_ID, "BoatOfDaphnes");
     if (static SDL_Surface* const s_icon = appicon::load(); s_icon)
         cfg.iconRGBA8 = s_icon->pixels, cfg.iconWidth = u32(s_icon->w), cfg.iconHeight = u32(s_icon->h);
+#endif
+#if defined(_WIN32)
+    // SDL's HIDAPI reads the official GameCube adapter (057E:0337, with the WinUSB driver Settings installs) through its
+    // libusb, whose device list crashes when a USB device it saw before comes back without an instance id (a controller
+    // or a Bluetooth adapter reconnecting mid-game: winusb_get_device_list, a strcmp of NULL). Without that adapter
+    // plugged in at start libusb stays off (BLUEWAKE_LIBUSB=1 turns it on anyway).
+    if (const char* force = std::getenv("BLUEWAKE_LIBUSB"); !(force && force[0] == '1') && !bodplat::UsbDevicePresent(0x057E, 0x0337)) {
+        SDL_SetHint(SDL_HINT_HIDAPI_LIBUSB, "0");
+        log("[frontend] no GameCube adapter plugged in: SDL's libusb is off\n");
+    }
 #endif
     // Scripted runs: the window not taking the focus (BLUEWAKE_WINDOW_NOACTIVATE=1), put where BLUEWAKE_WINDOW_POS=x,y says
     if (const char* quiet = std::getenv("BLUEWAKE_WINDOW_NOACTIVATE"); quiet && quiet[0] == '1') {

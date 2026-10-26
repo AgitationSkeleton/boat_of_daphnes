@@ -1,0 +1,28 @@
+description Anchor: Link's crouch stabs are recorded by a mate (node server/anchor/test/pose_replay.mjs with MATE_SAVEFRAMES), to replay to a game with the option off (anchor_stab_replay)
+# Run first: MATE_SAVEFRAMES=<file> node server/anchor/test/pose_replay.mjs ws://127.0.0.1:8814 stabrec 30 70
+save 2-Pictobox
+cvar gNetwork.Anchor.Host 127.0.0.1:8814
+cvar gNetwork.Anchor.Room stabrec
+cvar gNetwork.Anchor.Name Tester
+cvar gNetwork.Anchor.Team blue
+cvar gNetwork.Anchor.Enabled 1
+cvar gEnhancements.BetterWW.oot_crouch_stab 1
+env BLUEWAKE_OOT_LOG 1
+windowed
+timeout 400
+start load
+wait link
+collect swords
+wait 20
+press B 8
+wait 120
+hold R
+wait 60
+press B 6
+wait 40
+press B 6
+wait 40
+press B 6
+wait 40
+release R
+wait 1500

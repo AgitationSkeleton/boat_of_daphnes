@@ -1,0 +1,27 @@
+description Keep Held Weapons: a game over with a stick in hand does not crash and does not carry the stick into the restart
+timeout 900
+save 2-Pictobox
+options keep_weapons
+env BLUEWAKE_OOT_LOG 1
+env BLUEWAKE_TEST_BUNNY 1
+size 640x480
+start load
+wait link
+warp ma2room 0 0
+wait 120
+console spawn Boko 0 80
+wait 60
+press A 6
+wait 120
+peek actor:0xA9+0x3560/2 equip_before
+poke 0x803C4C0A=0/2
+wait 1500
+shot save_prompt
+press A 6
+wait 600
+shot after_prompt
+press A 6
+wait 900
+shot after_continue
+wait 600
+shot restarted

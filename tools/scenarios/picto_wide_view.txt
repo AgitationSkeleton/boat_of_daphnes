@@ -1,0 +1,12 @@
+description The Picto Box viewfinder raised (not shot): its darkening overlay must cover the whole window at any aspect; run with size per aspect
+save 2-Pictobox
+start load
+wait link
+give picto_box
+equip Y picto_box
+teleport sea 11 -1985 300 -200800 0
+wait link
+wait 60
+press Y 10
+wait 300
+shot viewfinder

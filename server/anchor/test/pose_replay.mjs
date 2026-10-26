@@ -26,6 +26,7 @@
 //         MATE_BOMB_LOSS=1 (with MATE_BOMB: the poses that say it went off are lost: the bomb stops being listed, and the receiver's timeout makes it go off),
 //         MATE_NOEYE=1 (the eye chunk is left out, as an older client's pose has it: the pupils look straight ahead),
 //         MATE_NOFACE=1 (the expression chunk is left out of the replayed pose: the puppet's face must not be the game's own Link's),
+//         MATE_SAVEFRAMES=<file> (the recorded poses are saved when the recording ends), MATE_LOADFRAMES=<file> (replayed in another run, with no recording: a stab recorded with the option on shows to a game with it off),
 //         MATE_GEAR=1 (the replayed pose has the Hero's Sword on the back and the Hero's Shield on the arm, as a player
 //         with them equipped sends them: the recorded Link may have none, and then the puppets' equipment models would not show).
 import { createHash } from 'node:crypto';
@@ -270,7 +271,8 @@ const mateName = process.env.MATE_NAME || 'Mate';
 const dx = Number(process.env.MATE_DX ?? 150);
 const dz = Number(process.env.MATE_DZ ?? 0);
 const ws = new WebSocket(`${base}/ws?room=${room}`);
-const frames = [];
+const frames = process.env.MATE_LOADFRAMES ? JSON.parse(readFileSync(process.env.MATE_LOADFRAMES, 'utf8')) : [];
+let framesSaved = false;
 let t0 = 0, at = 0, latest = null;
 const state = () => ({ name: mateName, teamId: 'red', stage: 'sea', room: Number(process.env.MATE_ROOM || 44), isSaveLoaded: true, content, voicePitch: Number(process.env.VOICE_PITCH || 0),
   linkModel: mateParts && mateParts.link ? 1 : 0, linkColors: colors });
@@ -290,7 +292,7 @@ ws.onmessage = (e) => {
   if (m.type === 'PLAYER_UPDATE' && m.pose) {
     latest = m;
     if (!t0) t0 = Date.now();
-    if (Date.now() - t0 < record * 1000) frames.push(m);
+    if (!process.env.MATE_LOADFRAMES && Date.now() - t0 < record * 1000) frames.push(m);
     if (process.env.MATE_HOLD && !holdFrame) { // MATE_HOLD=<kind>: the first pose that holds a model of that kind (1 item in hand, 9 item get, 4 grab ...) is replayed
       const hit = attachments(Buffer.from(m.pose, 'base64')).find((a) => a.kind === Number(process.env.MATE_HOLD));
       if (hit) {
@@ -306,6 +308,7 @@ ws.onmessage = (e) => {
 // The recording again and again, moved so it starts where the game's Link now is, dx / dz units to his side.
 setInterval(() => {
   if (!frames.length || Date.now() - t0 < record * 1000 || !latest) return;
+  if (process.env.MATE_SAVEFRAMES && !framesSaved) { framesSaved = true; writeFileSync(process.env.MATE_SAVEFRAMES, JSON.stringify(frames)); console.log(`saved ${frames.length} recorded poses to ${process.env.MATE_SAVEFRAMES}`); }
   const f = holdFrame && (process.env.MATE_HOLD || process.env.MATE_LOADHOLD) ? holdFrame : frames[process.env.MATE_FREEZE ? frames.length - 1 : at++ % frames.length]; // (frozen: the last recorded pose, when Link has settled)
   const first = frames[0];
   const pose = Buffer.from(f.pose, 'base64');

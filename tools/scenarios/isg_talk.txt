@@ -1,0 +1,69 @@
+description Infinite Sword Glitch (Crouch Stab sub-option): a stab cut short by talking to a Windfall townsperson leaves the sword live: a pot touched by the idle blade breaks, the trail lingers, and a slash ends it
+# Windfall, an NPC_PEOPLE 100 units ahead; the Hero's Sword drawn, R held (crouch). B stabs (slowed to half pace so the script can act in the
+# retract frames); R is let go and A pressed (Wind Waker does not let Link talk with R held, so this is its way to the interruption).
+# Expect: [isg] cut short by proc AA; [isg] the talk leaves the sword in his hand; after the text the sword is still live (CUT_AT_FLG 0x40 set,
+# peek noreset_after_talk), a pot made at the blade breaks with no attack; then a slash (B) ends it (no [isg] live line afterwards).
+timeout 900
+save 2-Pictobox
+options oot_crouch_stab
+cvar gEnhancements.SkipText 1
+env BLUEWAKE_OOT_KNOBS oot_stab_isg=1,oot_stab_speed=0.5
+env BLUEWAKE_OOT_LOG 1
+env BLUEWAKE_TEST_BUNNY 1
+size 640x480
+start load
+wait link
+collect swords
+warp sea 11 0
+teleport sea 11 471 150 -198501 0
+wait 90
+press B 6
+wait 40
+press B 6
+wait 60
+hold R
+wait 30
+peek actor:0xA9+0x31D8/4 proc_before
+press B 3
+wait 6
+release R
+wait 6
+dumpframes 16
+press A 6
+wait 40
+peek actor:0xA9+0x31D8/4 proc_in_talk
+peek actor:0xA9+0x3560/2 equip_in_talk
+peek actor:0xA9+0x29C/4 noreset_in_talk
+shot in_talk
+hold B
+wait noevent 1800
+release B
+log TALK_OVER
+wait 40
+peek actor:0xA9+0x31D8/4 proc_after_talk
+peek actor:0xA9+0x3560/2 equip_after_talk
+peek actor:0xA9+0x29C/4 noreset_after_talk
+shot after_talk
+cstick -127 0 27
+wait 50
+shot side_still
+dumpframes 6
+stick 127 0 12
+wait 20
+console spawn kotubo 0xFFFFFFFF 60
+wait 8
+console actors tsubo
+wait 30
+console actors tsubo
+shot pot_gone
+log SLASH
+press B 6
+wait 40
+peek actor:0xA9+0x29C/4 noreset_after_slash
+log DONE
+expect \[isg\] stab cut short \(t [0-9.]+\) by proc AA
+expect \[isg\] the talk leaves the sword in his hand
+expect_peek equip_in_talk == 0x103
+expect_peek equip_after_talk == 0x103
+expect_peek noreset_after_talk == 0x1C0
+expect_peek noreset_after_slash == 0x180

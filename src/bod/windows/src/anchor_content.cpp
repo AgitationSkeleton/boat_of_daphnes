@@ -5,6 +5,7 @@
 
 #include "anchor_content.h"
 
+#include "chat_portrait.h"
 #include "content_validate.h"
 #include "model_colors.h"
 #include "mods.h"
@@ -704,7 +705,7 @@ void Tick(const std::string& http_base, bool share, bool connected) {
         }
     }
     if (purge) {
-        const int n = PurgeCache();
+        const int n = PurgeCache() + chat_portrait::PurgeDisk();
         std::fprintf(stderr, "[content] sharing is off: %d cached files of other players removed\n", n);
         return;
     }

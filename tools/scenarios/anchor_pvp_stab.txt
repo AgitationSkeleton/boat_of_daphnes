@@ -1,0 +1,33 @@
+description PvP with the crouch stab: Link stabs a teammate's puppet (needs a local Anchor server on 8814 and test/pvp_mate.mjs, see the header)
+# Run first: node server/anchor/test/pvp_mate.mjs ws://127.0.0.1:8814 stabroom3 200 on 0 -27 -48 100
+# (the mate owns the room with PvP on, and stands 55 units ahead of Link, who faces -150 degrees on this save). The log shows
+# "[pvp] my attack hit player ...: attack power N" for each stab that landed, one per swing.
+save 2-Pictobox
+cvar gNetwork.Anchor.Host 127.0.0.1:8814
+cvar gNetwork.Anchor.Room stabroom3
+cvar gNetwork.Anchor.Name Tester
+cvar gNetwork.Anchor.Team red
+cvar gNetwork.Anchor.Enabled 1
+cvar gEnhancements.BetterWW.oot_crouch_stab 1
+env BLUEWAKE_OOT_LOG 1
+windowed
+timeout 300
+start load
+wait link
+collect swords
+wait 20
+press B 8
+wait 120
+hold R
+wait 60
+press B 6
+wait 30
+press B 6
+wait 30
+press B 6
+wait 30
+press B 6
+wait 60
+release R
+wait 20
+expect \[pvp\] my attack hit player

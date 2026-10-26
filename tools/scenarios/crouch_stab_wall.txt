@@ -1,0 +1,35 @@
+description Crouch Stab against a wall: Link walks into the house above Outset's dock and stabs; the blade meets the wall and he rebounds as a slash does (procCutReverse, proc 0x5A)
+timeout 300
+options oot_crouch_stab
+env BLUEWAKE_OOT_LOG 1
+save 2-Pictobox
+size 1280x960
+start load
+wait link
+collect swords
+warp sea 44 0
+teleport sea 44 -201622 168 312243 -2003
+wait 40
+teleport sea 44 -202361 215 316049 -1993
+wait 40
+press B 6
+wait 40
+press B 6
+wait 40
+stick 0 127 200
+wait 210
+hold R
+wait 40
+press B 4
+wait 4
+peek actor:0xA9+0x31D8/4 p4
+wait 4
+peek actor:0xA9+0x31D8/4 p8
+wait 4
+peek actor:0xA9+0x31D8/4 p12
+wait 4
+peek actor:0xA9+0x31D8/4 p16
+release R
+wait 20
+expect \[oot\] stab rebounds
+expect_peek p8 == 0x5A

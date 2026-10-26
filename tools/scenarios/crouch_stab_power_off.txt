@@ -1,0 +1,27 @@
+description Power Crouch Stab off: after a Master Sword slash the stab is a plain one (power 1, its own cut type)
+# A slash with the Master Sword (power 2, cut type 4) is the last sword attack; the Hero's Sword is put back and the stab
+# inherits power 2 (its own would be 1). The poke is the test's way to a bigger attack than the Hero's Sword's; the log's "atp" is the sword capsule's power when the stab starts.
+timeout 300
+save 2-Pictobox
+options oot_crouch_stab
+env BLUEWAKE_OOT_LOG 1
+size 640x480
+start load
+wait link
+collect swords
+wait 20
+press B 8
+wait 40
+poke 0x803C4C16=0x49/1
+wait 10
+press B 6
+wait 60
+poke 0x803C4C16=0x38/1
+wait 40
+hold R
+wait 60
+press B 6
+wait 60
+release R
+wait 20
+expect_not (inherited)

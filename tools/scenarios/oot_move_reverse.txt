@@ -1,0 +1,89 @@
+description OoT-style movement: a 180 degree stick reversal while running stops Link and faces the new way in one frame; no skid (proc 0x19) and no turn-around (0x18)
+options oot_move
+env BLUEWAKE_OOT_LOG 1
+save 2-Pictobox
+start load
+wait link
+warp Omori 0 0
+wait link
+wait 60
+stick 0 127
+wait 60
+log reverse
+stick 0 -127
+wait 2
+peek actor:0xA9+0x31D8/4 proc1
+peek actor:0xA9+0x206/2 head1
+peek actor:0xA9+0x35BC/4 spd1
+wait 2
+peek actor:0xA9+0x31D8/4 proc2
+peek actor:0xA9+0x206/2 head2
+peek actor:0xA9+0x35BC/4 spd2
+wait 2
+peek actor:0xA9+0x31D8/4 proc3
+peek actor:0xA9+0x206/2 head3
+peek actor:0xA9+0x35BC/4 spd3
+wait 2
+peek actor:0xA9+0x31D8/4 proc4
+peek actor:0xA9+0x206/2 head4
+peek actor:0xA9+0x35BC/4 spd4
+wait 2
+peek actor:0xA9+0x31D8/4 proc5
+peek actor:0xA9+0x206/2 head5
+peek actor:0xA9+0x35BC/4 spd5
+wait 2
+peek actor:0xA9+0x31D8/4 proc6
+peek actor:0xA9+0x206/2 head6
+peek actor:0xA9+0x35BC/4 spd6
+wait 2
+peek actor:0xA9+0x31D8/4 proc7
+peek actor:0xA9+0x206/2 head7
+peek actor:0xA9+0x35BC/4 spd7
+wait 2
+peek actor:0xA9+0x31D8/4 proc8
+peek actor:0xA9+0x206/2 head8
+peek actor:0xA9+0x35BC/4 spd8
+wait 2
+peek actor:0xA9+0x31D8/4 proc9
+peek actor:0xA9+0x206/2 head9
+peek actor:0xA9+0x35BC/4 spd9
+wait 2
+peek actor:0xA9+0x31D8/4 proc10
+peek actor:0xA9+0x206/2 head10
+peek actor:0xA9+0x35BC/4 spd10
+wait 2
+peek actor:0xA9+0x31D8/4 proc11
+peek actor:0xA9+0x206/2 head11
+peek actor:0xA9+0x35BC/4 spd11
+wait 2
+peek actor:0xA9+0x31D8/4 proc12
+peek actor:0xA9+0x206/2 head12
+peek actor:0xA9+0x35BC/4 spd12
+stick 0 0
+wait 20
+expect \[oot\] move reversal
+expect_peek proc1 != 0x19
+expect_peek proc1 != 0x18
+expect_peek proc2 != 0x19
+expect_peek proc2 != 0x18
+expect_peek proc3 != 0x19
+expect_peek proc3 != 0x18
+expect_peek proc4 != 0x19
+expect_peek proc4 != 0x18
+expect_peek proc5 != 0x19
+expect_peek proc5 != 0x18
+expect_peek proc6 != 0x19
+expect_peek proc6 != 0x18
+expect_peek proc7 != 0x19
+expect_peek proc7 != 0x18
+expect_peek proc8 != 0x19
+expect_peek proc8 != 0x18
+expect_peek proc9 != 0x19
+expect_peek proc9 != 0x18
+expect_peek proc10 != 0x19
+expect_peek proc10 != 0x18
+expect_peek proc11 != 0x19
+expect_peek proc11 != 0x18
+expect_peek proc12 != 0x19
+expect_peek proc12 != 0x18
+expect_peek proc12 == 6

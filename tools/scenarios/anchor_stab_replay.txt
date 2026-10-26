@@ -1,0 +1,19 @@
+description Anchor: a mate replays recorded crouch stabs to a game with Crouch Stab OFF: the puppet stabs by itself and makes the swish and voice once per stab
+# Run first: MATE_LOADFRAMES=<file from anchor_stab_record> node server/anchor/test/pose_replay.mjs ws://127.0.0.1:8814 stabview 0 90 (with MATE_DX=-70 MATE_DZ=-120: the puppet stands in front of Link)
+# The host log (BLUEWAKE_PUPPET_PROC_LOG) shows "[puppet] player N swing a -> b" and "sounds for player" for each stab.
+save 2-Pictobox
+cvar gNetwork.Anchor.Host 127.0.0.1:8814
+cvar gNetwork.Anchor.Room stabview
+cvar gNetwork.Anchor.Name Viewer
+cvar gNetwork.Anchor.Team blue
+cvar gNetwork.Anchor.Enabled 1
+env BLUEWAKE_PUPPET_PROC_LOG 1
+
+windowed
+size 1280x960
+timeout 400
+start load
+wait link
+wait 120
+dumpframes 360
+wait 800

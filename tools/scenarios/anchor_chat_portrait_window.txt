@@ -1,0 +1,23 @@
+description Anchor chat portraits in the chat window: two mates (portrait_mate.mjs) chat and share an item; the sound start is logged and the toast and chat line show the portrait
+# Needs a local Anchor server on 127.0.0.1:8826 (server/anchor: npx wrangler dev --port 8826) and, in room "portr",
+#   node server/anchor/test/portrait_mate.mjs ws://127.0.0.1:8826 portr 240 blue 6
+windowed
+timeout 300
+save 2-Pictobox
+cvar gNetwork.Anchor.Enabled 1
+cvar gNetwork.Anchor.Host 127.0.0.1:8826
+cvar gNetwork.Anchor.Room portr
+cvar gNetwork.Anchor.Name Tester
+cvar gNetwork.Anchor.Team blue
+cvar gSettings.Notifications.Duration 30
+cvar gOpenWindows.Chat 1
+start load
+wait link
+log GAME READY
+wait 2400
+winshot chat1
+wait 900
+winshot chat2
+wait 600
+winshot chat3
+wait 60

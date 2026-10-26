@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -111,12 +112,15 @@ enum class V : u8 {
     ExtraEdge,    // f: 114 t (the HUD's offset to the window's edge)
     Scale,        // f: 1 + t/3 (the 3D view's 2D overlay, widened about the middle)
     EdgeFrom320,  // f: 320 - 114 t
-    ViewX,        // f: the Picto Box picture's x
+    ViewX,        // f: the Picto Box picture's x (the viewport of dJle_Pb_c::pictureDraw: the whole screen)
     ViewW,        // f: its width
+    OrthoL,       // f: the left edge of the picture's orthographic projection (widened to match the viewport)
+    OrthoR,       // f: its right edge
     NameLeft,     // r: the bits of -(9 + 114 t) (the stage name's left edge)
     MapW,         // r: 116 + 37 t (the map's scissor)
     MapY,         // r: 32 t
     HudInt,       // r: 8 + 102 t
+    NoPillar,     // r3: the address of a clear colour (a black box the code fills at each side of the Picto Box's view)
 };
 struct Site {
     u32 addr;
@@ -141,23 +145,109 @@ constexpr Site kSites[] = {
     {0x8004A444, V::MapY, 4, true, false},
     {0x80227A18, V::ViewX, 1, false, false},
     {0x80227A20, V::ViewW, 3, false, false},
+    {0x80227BA8, V::OrthoL, 3, false, false},
+    {0x80227BAC, V::OrthoR, 4, false, false},
+    {0x80004080, V::NoPillar, 3, false, true},
+    {0x80004098, V::NoPillar, 3, false, true},
 };
+// The scope view (telescope, Picto Box viewfinder) darkens around its window with four black panes laid out in the 640x480
+// screen, so on a wide window they stop at the 4:3 edges. At dDlst_2DSCP_c::draw (0x80237568) their bounds are made to
+// reach far past the screen (the top and bottom bars both ways, the side bars outwards; the bars' own edges are kept so
+// nothing overlaps while the scope fades in).
+constexpr u32 kScopeDrawSite = 0x80237568;
+constexpr u32 kScopeBlackPanes = 0x3DC + 4 * 0x38;  // sub_scp_class::mWpxxPanes[4..7] (fopMsgM_pane_class, 0x38 each)
+constexpr float kFar = 1000.f;
+// A pane of a J2DScreen by its tag (a four-character name), searched through its tree.
+u32 findPane(u32 pane, u32 tag, int depth = 0) {
+    if (rd32(pane + 8) == tag) return pane;
+    for (u32 link = rd32(pane + 0xB0); link && depth < 8; link = rd32(link + 0xC))
+        if (const u32 found = findPane(rd32(link), tag, depth + 1)) return found;
+    return 0;
+}
+// A pane's bounds edge moved outwards; its matrix holds the position it was last moved to, so the top left is set there too.
+void setLeft(u32 pane, float x) { wr32(pane + 0x0C, asBits(x)), wr32(pane + 0x48, asBits(x)); }
+void setTop(u32 pane, float y) { wr32(pane + 0x10, asBits(y)), wr32(pane + 0x58, asBits(y)); }
+void setRight(u32 pane, float x) { wr32(pane + 0x14, asBits(x)); }
+void setBottom(u32 pane, float y) { wr32(pane + 0x18, asBits(y)); }
+void widenScopeBlack(u32 self) {
+    const u32 scp = rd32(self + 4);
+    if (!scp) return;
+    for (int i = 0; i < 4; i++) {  // wp04 above, wp05 below, wp07 left, wp06 right
+        const u32 pane = rd32(scp + kScopeBlackPanes + 0x38 * i);
+        if (!pane) continue;
+        if (i < 2) setLeft(pane, -kFar), setRight(pane, 640.f + kFar);
+        if (i == 0) setTop(pane, -kFar);
+        if (i == 1) setBottom(pane, 480.f + kFar);
+        if (i == 2) setLeft(pane, -kFar);
+        if (i == 3) setRight(pane, 640.f + kFar);
+    }
+}
+// Leaf panes spanning the whole 640 columns (a full-screen backdrop or band): their sides are moved out. A pane keeps its
+// own alpha, colour and vertical extent, so it fades and moves with the screen's own animation.
+void widenFullWidth(u32 pane, float ox = 0.f, float oy = 0.f, int depth = 0) {
+    const float left = asFloat(rd32(pane + 0x0C)), top = asFloat(rd32(pane + 0x10)), right = asFloat(rd32(pane + 0x14)), bottom = asFloat(rd32(pane + 0x18));
+    const u32 first = rd32(pane + 0xB0);
+    if (!first) {
+        const float gl = ox + left, gr = ox + right;
+        const bool fullHeight = oy + top <= 0.5f && oy + bottom >= 479.5f;
+        if (depth > 0 && right - left < kFar) {  // (not yet moved out)
+            const bool toLeft = gl <= 0.5f && (gr >= 639.5f || fullHeight), toRight = gr >= 639.5f && (gl <= 0.5f || fullHeight);
+            if (toLeft) setLeft(pane, left - kFar);
+            if (toRight) setRight(pane, right + kFar);
+        }
+        return;
+    }
+    for (u32 link = first; link && depth < 8; link = rd32(link + 0xC)) widenFullWidth(rd32(link), ox + left, oy + top, depth + 1);
+}
+// The Picto Box's viewfinder (dJle_Pb_c::draw, 0x8022B320; its screen wipe_01_01 is at +4) darkens around its window with
+// four black panes (wp01 below, wp02 right, wp03 left, wp04 above) that reach just past the 640x480 screen.
+void widenPictoBlack(u32 self) {
+    const u32 scrn = rd32(self + 4);
+    if (!scrn) return;
+    for (u32 n = 1; n <= 4; n++) {
+        const u32 pane = findPane(scrn, 0x77703030 + n);
+        if (!pane) continue;
+        if (n == 1 || n == 4) setLeft(pane, -kFar), setRight(pane, 640.f + kFar);
+        if (n == 1) setBottom(pane, 480.f + kFar);
+        if (n == 2) setRight(pane, 640.f + kFar);
+        if (n == 3) setLeft(pane, -kFar);
+        if (n == 4) setTop(pane, -kFar);
+    }
+    // The album's backdrop and its darkening (full-width panes without children, in both screens) reach the window's sides too.
+    widenFullWidth(scrn);
+    if (const u32 scrn1 = rd32(self + 8)) widenFullWidth(scrn1);
+}
+u32 s_scopeWord = 0, s_pbWord = 0;
+bool s_scopePatched = false;
+
 constexpr u32 kClipperSite = 0x8017BF90;  // before mDoLib_clipper::setup in view_setup: f2 the view's aspect
 
 void setSingle(Ctx& c, int reg, float v) { c.f[reg] = v, c.ps1[reg] = v; }
 
+// dJle_Pb_c::pictureDraw (0x80227944) draws a photo through an orthographic projection of 659 units (-9..650) over a 640 wide
+// viewport. The game's 4:3 mapping puts that viewport in the 4:3 middle of a wide window (width 640/s, s the aspect over 4/3)
+// and anything outside it is clipped: the album's side photos lie out in the wide layout. The viewport is the whole screen
+// and the projection reaches as far out as the viewport did, so each photo keeps its size and place.
+float pictureViewW(float t) { return 640.f / (1.f + t / 3.f); }
+float pictureViewX(float t) { return 79.f * (640.f - pictureViewW(t)) / 160.f; }
 u32 runSite(Ctx& c, u32 pc, const Site& s) {
     const float t = s.hud ? s_th.load() : s_t.load();
     switch (s.what) {
     case V::ExtraEdge: setSingle(c, s.reg, 114.f * t); break;
     case V::Scale: setSingle(c, s.reg, 1.f + t / 3.f); break;
     case V::EdgeFrom320: setSingle(c, s.reg, 320.f - 114.f * t); break;
-    case V::ViewW: setSingle(c, s.reg, 640.f / (1.f + t / 3.f)); break;
-    case V::ViewX: setSingle(c, s.reg, 79.f * (640.f - 640.f / (1.f + t / 3.f)) / 160.f); break;
+    case V::ViewW: setSingle(c, s.reg, 640.f); break;
+    case V::ViewX: setSingle(c, s.reg, 0.f); break;
+    case V::OrthoL: setSingle(c, s.reg, -9.f - pictureViewX(t) * 659.f / pictureViewW(t)); break;
+    case V::OrthoR: setSingle(c, s.reg, 650.f + (640.f - pictureViewX(t) - pictureViewW(t)) * 659.f / pictureViewW(t)); break;
     case V::NameLeft: c.r[s.reg] = asBits(-(9.f + 114.f * t)); break;
     case V::MapW: c.r[s.reg] = u32(s32(std::lround(116.f + 37.f * t))); break;
     case V::MapY: c.r[s.reg] = u32(s32(std::lround(32.f * t))); break;
     case V::HudInt: c.r[s.reg] = u32(s32(std::lround(8.f + 102.f * t))); break;
+    case V::NoPillar:  // (the code's two opaque boxes, at once black on the sides, are the four panes' job now: they fade with the view)
+        wr32(c.r[1] + 8, 0);
+        c.r[s.reg] = c.r[1] + 8;
+        break;
     }
     return pc + 4;
 }
@@ -194,6 +284,14 @@ void apply(bool on) {
             setSingle(c, 2, 4.f / 3.f);
             return kInterpOriginal;
         });
+        s_pbWord = interpHookWord([](Ctx& c, u32) -> u32 {
+            widenPictoBlack(c.r[3]);
+            return kInterpOriginal;
+        });
+        s_scopeWord = interpHookWord([](Ctx& c, u32) -> u32 {
+            widenScopeBlack(c.r[3]);
+            return kInterpOriginal;
+        });
     }
     if (s_on) {
         for (const auto& patch : code.patches) interpUnpatch(patch.first);
@@ -220,6 +318,14 @@ void apply(bool on) {
             interpPatch(kSites[k].addr, s_siteWords[k]);
             if (!kSites[k].cave) interpOverrideAt(kSites[k].addr);
         }
+    }
+    if (s_scopePatched) interpUnpatch(kScopeDrawSite);
+    s_scopePatched = on;
+    if (on) {
+        interpPatch(0x8022B320, s_pbWord);
+        interpOverrideAt(0x8022B320);
+        interpPatch(kScopeDrawSite, s_scopeWord);
+        interpOverrideAt(kScopeDrawSite);
     }
     log("[wide] widescreen code %s\n", on ? "on" : "off (4:3)");
     s_on = on;
@@ -248,6 +354,8 @@ u32 valueAt(const Write& d, u32 original, float t) {
     return asBits(o + (asFloat(d.value) - o) * t);
 }
 }  // namespace
+
+float twwWideScale() { return 1.f + s_t.load() / 3.f; }
 
 void twwWideFrame() {
     const float aspect = std::clamp(g_wideAspect.load(), 4.f / 3.f, 8.f);

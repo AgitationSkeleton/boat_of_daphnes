@@ -7,6 +7,7 @@
 
 #include "link_colors.h"
 
+#include "head_render.h"
 #include "model_colors.h"
 #include "gx_texture.h"
 #include "rarc.h"
@@ -48,6 +49,7 @@ struct Image {
 struct Texture {
     std::string name;
     aurora::texture::TextureSourceKey key;
+    std::string key_text; // the same as the index's text (gx_texture::Key)
     Image base;
     // The recolored pixels while registered: the renderer keeps a view of
     // them, not a copy, so they live here until the registration is removed.
@@ -706,6 +708,7 @@ bool Load() {
                 continue;
             }
             t.key = *key;
+            t.key_text = e.at("key").to_str();
             g_textures.push_back(std::move(t));
         }
     if (o.count("masks") && o.at("masks").is<picojson::array>())
@@ -937,6 +940,11 @@ void SetPlayerColors(int id, const std::string& spec) {
                 const auto key = parse_key(k);
                 if (!key)
                     continue;
+                // Two of a model's textures can share a key: the unchanged one must not stand beside the recolored one.
+                if (image == &t.rgba && std::any_of(result.begin(), result.end(), [&](const model_colors::Recolored& r) {
+                        return std::find(r.keys.begin(), r.keys.end(), k) != r.keys.end();
+                    }))
+                    continue;
                 aurora::texture::RawTextureReplacement raw{};
                 raw.bytes = std::span<const uint8_t>(pixels->data(), pixels->size());
                 raw.width = image->width;
@@ -953,6 +961,47 @@ void SetPlayerColors(int id, const std::string& spec) {
     }
     std::fprintf(stderr, "[link_colors] player %d: %zu textures and %zu equipment textures in colors [%s]\n", id, g_textures.size(), g_equip.size(),
                  spec.c_str());
+}
+
+bool PortraitTextures(const std::string& spec, const model_colors::Set* model, head_render::Replacements& out) {
+    if (!Load() && model == nullptr)
+        return false;
+    const auto colors = parse_spec(spec);
+    {
+        g_override = &colors;
+        const bool share_casual = shared_casual();
+        for (const Texture& t : g_textures) {
+            Image img;
+            if (!recolor_one(t, share_casual, img))
+                img = t.base;
+            out[t.key_text] = head_render::Image{img.width, img.height, std::move(img.bytes)};
+        }
+        g_override = nullptr;
+    }
+    if (model != nullptr) {
+        const model_colors::Set& set = *model;
+        const auto result = model_colors::Recolor(set, [&](bool casual, const std::string& color) -> std::optional<uint32_t> {
+            const std::string full = model_colors::ColorId(set, casual, color);
+            const auto it = colors.find("Link.M." + full.substr(std::string("Link.").size() + set.id_name.size() + 1));
+            if (it == colors.end())
+                return std::nullopt;
+            return it->second;
+        });
+        // The model's own textures, then the recolored ones over them: two of a model's textures can share a key (the same
+        // image under two names), and the unchanged one written last left the portrait in the model's own colors (user 2026-10-25).
+        for (const model_colors::Texture& t : set.textures)
+            for (const std::string& k : t.keys)
+                out[k] = head_render::Image{t.rgba.width, t.rgba.height, t.rgba.bytes};
+        for (const model_colors::Recolored& r : result)
+            for (const std::string& k : r.keys)
+                out[k] = head_render::Image{r.image.width, r.image.height, r.image.bytes};
+        if (std::getenv("BLUEWAKE_PORTRAIT_LOG") != nullptr) { // testing
+            std::fprintf(stderr, "[portrait] model %s: %zu of %zu textures recolored\n", set.name.c_str(), result.size(), set.textures.size());
+            for (const model_colors::Recolored& r : result)
+                std::fprintf(stderr, "[portrait]   recolored %s (%zu keys)\n", r.texture.c_str(), r.keys.size());
+        }
+    }
+    return true;
 }
 
 void MarkDirty() { g_dirty = true; }

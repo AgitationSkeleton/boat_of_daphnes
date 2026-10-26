@@ -1,0 +1,25 @@
+description Online failover over TLS: the main server is dead, the game moves to a wss:// backup on this PC whose self-signed certificate is trusted by pin only
+# Run:  make a throwaway certificate for localhost (openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes
+#         -keyout key.pem -out cert.pem -days 2 -subj /CN=localhost -addext subjectAltName=DNS:localhost,IP:127.0.0.1)
+#       server/anchor-node: CONFIG=<a config.json with tlsCert/tlsKey> PORT=8823 BIND=127.0.0.1 DATA_DIR=<tmp> node src/server.js
+#       NODE_EXTRA_CA_CERTS=<cert.pem> node server/anchor/test/spy_mate.mjs wss://localhost:8823 wt11tls 600 blue 0
+#       python tools/scenario.py anchor_failover_tls --env BLUEWAKE_ANCHOR_TEST_PIN=localhost=<SHA-256 of cert.pem's public key, hex>
+#       (the test pin is read by the game only from that environment variable; the real pin covers wwfallback.viosarcade.xyz).
+#       Nothing may listen on 8821.
+save 2-Pictobox
+cvar gNetwork.Anchor.Host 127.0.0.1:8821
+cvar gNetwork.Anchor.FallbackHost wss://localhost:8823
+cvar gNetwork.Anchor.Room wt11tls
+cvar gNetwork.Anchor.Name Tester
+cvar gNetwork.Anchor.Team blue
+cvar gNetwork.Anchor.Enabled 1
+windowed
+timeout 240
+start load
+wait link
+wait 1500
+log after_failover
+expect \[anchor\] the main server \(127.0.0.1\) is not usable
+expect \[anchor\] toast: Online play moved to the backup server
+expect \[anchor\] connected to localhost \(backup server\) room
+expect_not TIMEOUT

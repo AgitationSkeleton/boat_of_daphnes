@@ -1,0 +1,16 @@
+description The Picto Box album (R in the viewfinder, Swap Modes) at a wide aspect: its backdrop must fill the window; every frame of the opening is dumped; run with size per aspect
+save 2-Pictobox
+timeout 700
+start load
+wait link
+give picto_box
+equip Y picto_box
+teleport sea 11 -1985 300 -200800 0
+wait link
+wait 120
+press Y 20
+wait 300
+dumpframes 40
+press R 20
+wait 120
+shot album

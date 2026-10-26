@@ -1,0 +1,466 @@
+description Release check: a new vanilla game in an empty slot (file 2) through the real UI (quest select: Vanilla, name entry, the intro skipped with Start, A through the opening) to the opening's last line (Aryll's "Hurry up, Big Brother!"; the scripted A presses do not close that one, on 2026.10.24c too)
+windowed
+size 1280x720
+save 2-Pictobox
+env BLUEWAKE_TEST_SCRIPT_UI_PAD 1
+timeout 1200
+start fileselect 1
+wait 120
+press A 8
+wait 100
+press A 8
+wait 300
+press A 8
+wait 300
+press A 8
+wait 30
+press START 8
+wait 30
+press A 8
+wait 400
+press START 6
+wait 50
+press START 6
+wait 50
+press START 6
+wait 50
+press START 6
+wait 50
+press START 6
+wait 50
+press START 6
+wait 50
+press START 6
+wait 50
+press START 6
+wait 50
+press START 6
+wait 50
+press START 6
+wait 50
+press START 6
+wait 50
+press START 6
+wait 50
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 40
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+press A 6
+wait 30
+log NEW GAME OPENING DONE
+winshot opening

@@ -6,6 +6,7 @@
 // share one (a WebSocket's receive loop and its sends): each call to OpenSSL takes the Stream's lock, and a reader that
 // has nothing to read waits in poll() without holding it.
 #include "bod_platform.h"
+#include "pin_registry.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -32,7 +33,13 @@
 #include <cstring>
 #include <mutex>
 
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+#define SSL_get1_peer_certificate SSL_get_peer_certificate
+#endif
+
 namespace bodplat {
+
+void PinCertificate(const std::string& host, const std::string& spki_sha256_hex) { pins::Set(host, spki_sha256_hex); }
 
 bool Sha256(const uint8_t* data, size_t size, uint8_t out[32]) {
     unsigned int length = 0;
@@ -46,6 +53,24 @@ using Clock = std::chrono::steady_clock;
 int ms_left(Clock::time_point deadline) {
     const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now()).count();
     return left < 0 ? 0 : static_cast<int>(std::min<long long>(left, 1 << 30));
+}
+
+// Whether the SHA-256 of the peer certificate's SubjectPublicKeyInfo (DER) is pin (64 lowercase hex digits).
+bool peer_matches_pin(SSL* ssl, const std::string& pin) {
+    X509* cert = SSL_get1_peer_certificate(ssl);
+    if (cert == nullptr)
+        return false;
+    bool match = false;
+    unsigned char* der = nullptr;
+    const int size = i2d_X509_PUBKEY(X509_get_X509_PUBKEY(cert), &der);
+    if (size > 0 && der != nullptr) {
+        uint8_t digest[32];
+        if (Sha256(der, static_cast<size_t>(size), digest))
+            match = pins::ConstantTimeEqual(pins::ToHex(digest, sizeof digest), pin);
+    }
+    OPENSSL_free(der);
+    X509_free(cert);
+    return match;
 }
 
 SSL_CTX* tls_context() {
@@ -134,17 +159,31 @@ public:
             return false;
         }
         SSL_set_fd(mSsl, mFd);
+        // A pinned host is trusted by the hash of its key alone (checked after the handshake, before anything is sent):
+        // the CA, name and date checks are off for it.
+        std::string pin;
+        const bool pinned = pins::Find(host, &pin);
+        if (pinned)
+            SSL_set_verify(mSsl, SSL_VERIFY_NONE, nullptr);
         unsigned char address[sizeof(in6_addr)];
         if (inet_pton(AF_INET, host.c_str(), address) == 1 || inet_pton(AF_INET6, host.c_str(), address) == 1) {
-            X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(mSsl), host.c_str());
+            if (!pinned)
+                X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(mSsl), host.c_str());
         } else {
             SSL_set_tlsext_host_name(mSsl, host.c_str());
-            SSL_set1_host(mSsl, host.c_str());
+            if (!pinned)
+                SSL_set1_host(mSsl, host.c_str());
         }
         for (;;) {
             const int rc = SSL_connect(mSsl);
-            if (rc == 1)
+            if (rc == 1) {
+                if (pinned && !peer_matches_pin(mSsl, pin)) {
+                    *what = "the server's certificate does not match the pinned key";
+                    *code = 0;
+                    return false;
+                }
                 return true;
+            }
             const int err = SSL_get_error(mSsl, rc);
             if ((err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) || ms_left(deadline) == 0) {
                 *what = "the server's certificate or TLS handshake was refused";

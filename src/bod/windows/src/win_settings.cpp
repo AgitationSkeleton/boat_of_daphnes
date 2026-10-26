@@ -22,6 +22,7 @@
 #include "game_state.h"
 #include "controller_face_swap.h"
 #include "restart_request.h"
+#include "updater.h"
 #include "rando_flow.h"
 #include "drop_path.h"
 #include "launch_marker.h"
@@ -82,6 +83,7 @@ void bluewake_forest_water_reload(void);
 void bluewake_haptics_block(bool blocked);
 const char* bluewake_game_options_describe(uint32_t position, const char** title, bool* default_on, bool* on);
 bool bluewake_game_options_set(const char* name, bool on);
+bool bluewake_game_options_set_value(const char* name, float value);
 bool bluewake_game_options_has(const char* name);
 bool bluewake_host_reset_requested(void); // game_options.c: the game asked for a console reset
 void bluewake_treasure_glow_set(int mode);
@@ -208,10 +210,97 @@ const BetterWwRow kBetterWw[] = {
      "equipping, Morths falling out of bounds, light arrows on Stalfos, Miniblins, Jalhalla's Poes and Magtails, "
      "Phantom Ganon's trigger, the Skull Hammer guard, the miniboss music that kept playing, and the arrow "
      "crash.", 1},
+    {"keep_weapons", "Quality of Life", 1, "Gameplay", "Keep Held Weapons",
+     "A Bokoblin stick (lit or not), machete, Stalfos mace, Darknut sword or Moblin spear you carry stays in Link's "
+     "hand through doors and area changes, instead of being dropped at the door or left behind. After an area change "
+     "it is back in his hand as soon as he is free to move (no cutscene, standing or walking, nothing else in hand); "
+     "a lit torch stick keeps the time it has left. Not kept: after a game over, on the boat, or if he takes another "
+     "item first, and Phantom Ganon's sword stays in its own fight (doors only).", 0},
+    {"moblin_no_jail", "Quality of Life", 1, "Gameplay", "Disable Moblin Stealth Behavior",
+     "On the first visit to the Forsaken Fortress, before Link has a sword, the Moblin guards that spot him catch him "
+     "and throw him in the jail. With this on they fight him as they do on later visits (and can be targeted), so a "
+     "stick or other weapon he brings, or picks up there, can take them on. The searchlights are not changed.", 0},
     {"blur_off", "Graphics", 0, "Camera", "Blur Off",
      "Removes the distance blur. From Better Wind Waker's Gecko codes (Dolphin's Remove Distance Blur).", 0},
     {"unrestricted_camera", "Graphics", 0, "Camera", "Unrestricted Camera",
      "Lets the C-Stick camera zoom out farther and tilt higher. From Better Wind Waker's Gecko codes.", 0},
+    // Ocarina of Time's controls (docs/fork: the design notes); each sets a few knobs below it.
+    {"oot_move", "Ocarina of Time Controls", 0, "Movement", "OoT-Style Movement",
+     "Link walks and runs the way he does in Ocarina of Time: from standing he faces the Control Stick at once and "
+     "runs off (inside the dead zone he only turns on the spot), his speed follows OoT's stick curve (slow until the "
+     "stick is well out), he turns at OoT's steady rate while running, and reversing stops him and turns him around "
+     "with no skid. On the ground only; sailing, swimming, climbing, ice, Iron Boots, targeting and cutscenes keep "
+     "Wind Waker's feel.", 0},
+    {"oot_turn", "Ocarina of Time Controls", 0, "Turning", "Instant Turning",
+     "Standing still, Link faces the Control Stick's direction at once instead of turning on the spot or playing his "
+     "turn-around. Running is unchanged (OoT-Style Movement has OoT's own turning). Not on ice, with Iron Boots, while "
+     "targeting or in cutscenes.", 0},
+    {"b_slash_now", "Ocarina of Time Controls", 0, "Sword", "B Draws and Slashes",
+     "Pressing B with the sword sheathed and empty hands draws it and slashes in one go, as in Ocarina of Time. Wind "
+     "Waker only does this while targeting or holding another item.", 0},
+    // Ocarina of Time's controls (docs/fork/oot-controls.md).
+    {"oot_crouch_stab", "Ocarina of Time Controls", 0, "Sword", "Crouch Stab",
+     "While you crouch behind your shield (hold R with the sword drawn), B makes Ocarina of Time's quick stab, its own "
+     "animation on Link's body: the shield stays up, you can stab again as soon as one ends, and the stab hits like a "
+     "sword swing (it cuts grass and pots, hurts enemies). Other players see it, whatever their own settings.", 0},
+    {"oot_stab_power", "Ocarina of Time Controls", 0, "Sword", "Power Crouch Stab",
+     "Needs Crouch Stab. The stab hits as hard as your last sword attack, as it does in Ocarina of Time (where it "
+     "keeps the damage type of the previous swing): after a jump attack it deals the jump attack's damage. Against "
+     "another player in a room with PvP, the stab's power counts the same way.", 0},
+    {"mm_momentum", "Ocarina of Time Controls", 0, "Majora's Mask", "MM Ledge Momentum",
+     "Link keeps his speed off a ledge, as in Majora's Mask: his roll is Majora's Mask's (half again as fast as his "
+     "run), running or rolling off a ledge faster than half his run makes a jump that carries that speed, walking off "
+     "keeps its speed instead of dropping straight down, and in the air his speed only bleeds slowly (faster when well "
+     "over his run) with Majora's Mask's gentle steering. Ledge hangs and climbing down stay Wind Waker's.", 0},
+};
+
+// The knobs under the Ocarina of Time switches: the game's name for each (live, over the game's options), the
+// setting's default, its range, and the value the game gets per step (unit).
+struct OotKnobRow {
+    const char* option;  // shown under this switch, enabled with it
+    const char* cvar;
+    const char* knob;
+    int def, lo, hi, step;
+    float unit;
+    bool toggle;
+    const char* label;
+    const char* tooltip;
+};
+const OotKnobRow kOotKnobs[] = {
+    {"oot_move", "OoT.MoveFullSpeedAt", "oot_move_full_at", 75, 50, 100, 5, 0.01f, false,
+     "Full Speed At: %d %% of the Stick",
+     "How far the Control Stick must be pushed for full speed. Ocarina of Time's N64 stick reached it at 75 %, and "
+     "its dead zone (where Link only turns) is the first third of that."},
+    {"oot_move", "OoT.TopSpeed", "oot_move_top_speed", 100, 45, 100, 5, 0.01f, false, "Top Speed: %d %%",
+     "Link's top running speed as a share of Wind Waker's. 100 is Wind Waker's own speed; about 50 is Ocarina of "
+     "Time's relative to Link's size."},
+    {"oot_move", "OoT.TurnRate", "oot_move_turn_rate", 220, 100, 720, 10, 1.0f, false, "Running Turn Rate: %d deg/s",
+     "How fast Link's running direction follows the stick. Ocarina of Time's is 220."},
+    {"b_slash_now", "OoT.NoDrawDelay", "b_slash_no_draw_delay", 0, 0, 1, 1, 1.0f, true, "No Draw Delay",
+     "The sword appears and slashes on the very next frame, instead of after the draw animation."},
+    {"oot_crouch_stab", "OoT.CrouchStabSpeed", "oot_stab_speed", 100, 50, 200, 10, 0.01f, false, "Stab Speed: %d %%",
+     "How fast the stab plays: 100 is Ocarina of Time's pace (a fifth of a second, five stabs a second)."},
+    {"oot_crouch_stab", "OoT.StabInfiniteSword", "oot_stab_isg", 0, 0, 1, 1, 1.0f, true, "Allow Infinite Sword Glitch",
+     "Recreates, on purpose, a bug of Ocarina of Time (the Infinite Sword Glitch). There, if the crouch stab is "
+     "interrupted while Link pulls his arm back (by talking to someone, reading a sign, picking something up or opening "
+     "a chest), his sword stays in its slashing state: anything that touches it is hurt even though he is not "
+     "attacking, and its trail stays in the air, until he slashes or stabs again, or leaves the area (a room or stage "
+     "change, a reload). Here the same happens when you let go of R and talk, lift or open something within a moment "
+     "of the stab's thrust (Wind Waker does not let Link do those with R held); the sword stays in his hand through "
+     "the talk. It keeps the stab's power and, in a room with PvP, can hit other players like any swing. The part "
+     "where Link cannot walk off ledges meanwhile is not recreated."},
+    {"oot_crouch_stab", "OoT.StabDrawIntoStab", "oot_stab_draw", 0, 0, 1, 1, 1.0f, true, "Draw Into a Stab",
+     "With the sword sheathed, R is Wind Waker's plain crouch. With this on, B there raises the shield, draws the sword "
+     "and stabs in one go, as in Ocarina of Time (where R raises the shield with the sword still sheathed and B draws it "
+     "into the crouch stab). Needs a sword and a shield."},
+    {"oot_crouch_stab", "OoT.StabTalkWhileDefending", "oot_stab_talk", 0, 0, 1, 1, 1.0f, true, "Talk and Read While Defending",
+     "While you hold R behind your shield, A still talks to people and reads signs, as in Ocarina of Time (Wind Waker "
+     "only does it standing). With Allow Infinite Sword Glitch on, this is Ocarina of Time's own way into the glitch: "
+     "talk or read while a crouch stab pulls back."},
+    {"oot_stab_power", "OoT.StabInheritCut", "oot_stab_inherit_cut", 1, 0, 1, 1, 1.0f, true,
+     "Inherit Special Cut Reactions",
+     "A power stab also takes the kind of the last sword attack, so enemies that react to a jump attack (the Armos, "
+     "Bokoblins' weak points) react to the stab the same way. Off: only the damage is inherited."},
 };
 
 std::string better_ww_cvar(const char* name) { return std::string(CVAR_ENHANCEMENT("BetterWW.")) + name; }
@@ -574,8 +663,19 @@ void apply_reveal_sea_chart() {
     bluewake_chart_reveal_enable(CVarGetInteger(CVAR_ENHANCEMENT("RevealSeaChart"), 0) != 0);
 }
 
+void apply_oot_knobs() {
+    for (const auto& k : kOotKnobs)
+        bluewake_game_options_set_value(
+            k.knob, static_cast<float>(CVarGetInteger((std::string(CVAR_ENHANCEMENT("")) + k.cvar).c_str(), k.def)) * k.unit);
+    // MM Jump Flips' dropdown: 0 off, 1 as in Majora's Mask (no jump attack during a flip), 2 cosmetic (only the animation).
+    const int flips = std::clamp(CVarGetInteger(CVAR_ENHANCEMENT("OoT.MmFlips"), 0), 0, 2);
+    bluewake_game_options_set("mm_flips", flips != 0);
+    bluewake_game_options_set_value("mm_flips_cosmetic", flips == 2 ? 1.f : 0.f);
+}
+
 void apply_port_options() {
     apply_preferences();
+    apply_oot_knobs();
     apply_reveal_sea_chart();
     for (const auto& row : kBetterWw)
         if (!is_sail_option(row.name))
@@ -604,7 +704,7 @@ void set_menu_open(bool open) {
     if (open == g_menu_open)
         return;
     g_menu_open = open;
-    PADBlockInput(open || g_text_capture);
+    PADBlockInput(open); // (the chat line takes only the keyboard: a controller plays on while it is open)
     // The menu's keys and clicks are not the game's.
     input_editor::ApplyKeyboard(open || g_text_capture);
     bluewake_haptics_block(open);
@@ -630,6 +730,7 @@ void quit() {
 // reset (holding B+X+Start: JUTGamePad's three-button reset, then dComIfG_resetToOpening), the process kept. Before
 // the game has a scene (the boot) the process is started again instead.
 extern "C" void bluewake_ui_pad_inject(uint16_t buttons, unsigned samples); // ui_pad.h
+extern "C" void bluewake_request_soft_reset(void);                          // tww.cpp
 void restart();
 void soft_restart() {
     const BluewakeLocation here = bluewake_game_location();
@@ -637,7 +738,7 @@ void soft_restart() {
         here.scene_proc == BLUEWAKE_SCENE_TITLE) {
         std::fprintf(stderr, "[windows] restart: the game's soft reset (B+X+Start)\n");
         set_menu_open(false);
-        bluewake_ui_pad_inject(0x0200u | 0x0400u | 0x1000u, 90u); // B, X, Start, held well past the 0.5 s it needs
+        bluewake_request_soft_reset(); // the game's 3-button reset itself, at the next frame (no B for Link to draw his sword with)
         return;
     }
     restart();
@@ -1311,6 +1412,7 @@ void build_enhancements() {
     m.AddSidebar(H, "Skips & Speed-ups", 3);
     m.AddSidebar(H, "Items", 2);
     m.AddSidebar(H, "Graphics", 2);
+    m.AddSidebar(H, "Ocarina of Time Controls", 1);
     m.AddSidebar(H, "Cheats", 1);
     m.AddSidebar(H, "Cosmetics Editor", 1);
     m.AddWidget(H, "Cosmetics Editor", 0, "Cosmetics Editor", WidgetType::Window)
@@ -1334,6 +1436,33 @@ void build_enhancements() {
                            .DefaultValue(row.def)
                            .Tooltip(row.tooltip);
         widget.Callback([name = row.name](WidgetInfo&) { apply_better_ww(name); });
+        for (const auto& k : kOotKnobs) {
+            if (std::strcmp(k.option, row.name) != 0)
+                continue;
+            const std::string cvar = std::string(CVAR_ENHANCEMENT("")) + k.cvar;
+            auto& knob = m.AddWidget(H, row.sidebar, row.column, k.label,
+                                     k.toggle ? WidgetType::CVarCheckbox : WidgetType::CVarSliderInt)
+                             .CVar(cvar)
+                             .DefaultValue(k.def)
+                             .Tooltip(k.tooltip)
+                             .PreFunc([option = k.option](WidgetInfo& wi) {
+                                 disable_unless(wi, better_ww_wanted(option), "Its switch above is off");
+                             })
+                             .Callback([](WidgetInfo&) { apply_oot_knobs(); });
+            if (!k.toggle)
+                knob.Range(k.lo, k.hi, k.step);
+        }
+        if (std::strcmp(row.name, "mm_momentum") == 0)
+            m.AddWidget(H, row.sidebar, row.column, "MM Jump Flips", WidgetType::CVarCombobox)
+                .CVar(CVAR_ENHANCEMENT("OoT.MmFlips"))
+                .Items({"Off", "On (as in Majora's Mask)", "Cosmetic"})
+                .DefaultValue(0)
+                .Tooltip("Running jumps are, a third of the time each, the regular jump, Majora's Mask's front flip or its "
+                         "side somersault (its own body motion, with its landing; the side somersault ends its turn on the "
+                         "ground), with the roll's whoosh.\n\nOn: as in Majora's Mask, there is "
+                         "no jump attack during a flip.\nCosmetic: only the animation; the jump attack still comes and "
+                         "ends the flip.")
+                .Callback([](WidgetInfo&) { apply_oot_knobs(); });
         if (std::strcmp(row.name, "tingle_chests") == 0)
             m.AddWidget(H, row.sidebar, row.column, "Reveal Sea Chart", WidgetType::CVarCheckbox)
                 .CVar(CVAR_ENHANCEMENT("RevealSeaChart"))
@@ -1479,6 +1608,7 @@ void build_menu() {
         return;
     g_menu_built = true;
     build_settings();
+    updater::BuildMenu(g_menu);
     build_enhancements();
     randomizer::BuildMenu(g_menu);
     itemtracker::BuildMenu(g_menu);
@@ -1817,7 +1947,7 @@ void draw_hint(SDL_Window* w) {
 // callback, so a scenario can see a setting take effect in a running game. A
 // value that is not a number sets a string CVar (the menu's page, say). Two
 // names are not settings: gSettings.Presets.Apply applies the preset numbered
-// by the value, and gTest.Menu opens (1) or closes (0) the menu.
+// by the value, gTest.Menu opens (1) or closes (0) the menu, and gTest.Restart is the menu's Restart.
 void apply_test_change(const std::string& cvar, int value, const std::string& text, bool is_text, unsigned frames) {
     build_menu();
     if (cvar == "gSettings.Presets.Apply") {
@@ -1830,6 +1960,10 @@ void apply_test_change(const std::string& cvar, int value, const std::string& te
     }
     if (cvar == "gTest.Menu") {
         set_menu_open(value != 0);
+        return;
+    }
+    if (cvar == "gTest.Restart") {  // the menu bar's Restart, confirmed (soft_restart)
+        soft_restart();
         return;
     }
     if (is_text) {
@@ -2098,11 +2232,12 @@ void frame(void*) {
         hud_colors::Frame();
         online::Frame(scale, scale / g_font_scale);
         discord::Frame();
+        updater::Frame(restart);
         if (online::ChatOverlayOpen() != g_text_capture) {
+            // The typing is not the game's, but a controller's input still is (user 2026-10-25): only the keyboard's pad is off.
             g_text_capture = online::ChatOverlayOpen();
-            PADBlockInput(g_menu_open || g_text_capture);
             input_editor::ApplyKeyboard(g_menu_open || g_text_capture);
-            std::fprintf(stderr, "[windows] chat line %s, game input %s\n", g_text_capture ? "open" : "closed",
+            std::fprintf(stderr, "[windows] chat line %s, keyboard game input %s\n", g_text_capture ? "open" : "closed",
                          g_text_capture ? "blocked" : "restored");
         }
         input_editor::Frame(scale, scale / g_font_scale);
@@ -2119,6 +2254,7 @@ void frame(void*) {
 }
 
 void save_at_exit() {
+    updater::OnExit();
     discord::Shutdown();
     online::Shutdown();
     CVarSave();
@@ -2195,6 +2331,7 @@ extern "C" void bw_settings_apply_launch(void) {
     options += ",bunny_hood"; // the Bunny Hood's hooks (docs/fork/bunny-hood.md); they do nothing until the hood is owned; a module without it has no such option
     bluewake_intro_skip_set(CVarGetInteger(CVAR_ENHANCEMENT("SkipIntroWithStart"), 1) != 0);
     apply_preferences(); // before the game starts: a randomizer session applies its seed at boot
+    apply_oot_knobs();
     env_default("BLUEWAKE_TREASURE_GLOW", std::to_string(CVarGetInteger(CVAR_ENHANCEMENT("TreasureLightUpClose"), 0)));
     env_default("BLUEWAKE_OPTIONS", options);
     // The session's settings in one line, for reading a log.
@@ -2338,6 +2475,7 @@ extern "C" void bw_settings_open_menu_at(const char* header, const char* page) {
 extern "C" bool bw_settings_menu_is_open(void) { return g_menu_open; }
 
 extern "C" int bw_settings_relaunch(void) {
+    updater::OnExit();   // an update that was downloaded and asked for is swapped in before the program starts again
     discord::Shutdown(); // the program ends with _Exit, which skips atexit: clear the Discord status here
     return !g_restart.take() || relaunch() ? 0 : 1;
 }
@@ -2374,5 +2512,7 @@ extern "C" bool bluewake_settings_menu_event(const void* sdl_event) {
             return true;
     }
 #endif
-    return g_menu_open || g_text_capture;
+    // The open chat line keeps the keys and the mouse from the game, not a controller's events.
+    const bool controller = event->type >= SDL_EVENT_JOYSTICK_AXIS_MOTION && event->type < SDL_EVENT_FINGER_DOWN;
+    return g_menu_open || (g_text_capture && !controller);
 }

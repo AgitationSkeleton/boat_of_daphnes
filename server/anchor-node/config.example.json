@@ -1,0 +1,14 @@
+{
+  "port": 38417,
+  "bind": "0.0.0.0",
+  "publicHost": "wwfallback.viosarcade.xyz",
+  "dataDir": "./data",
+  "env": {},
+  "protocols": "1",
+  "maxConnections": 1500,
+  "maxConnectionsPerIp": 40,
+  "tlsCert": "",
+  "tlsKey": "",
+  "maxContentBytes": 21474836480,
+  "adminKey": ""
+}

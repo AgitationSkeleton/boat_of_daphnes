@@ -1,0 +1,24 @@
+description Release check: loading an existing randomizer file (file 1) from the file select (through its UI: file 1, then Start) switches to the randomizer in place and plays: Link walks (needs SA2_CARD with a randomizer file in slot 1 and its .slots.json, BLUEWAKE_RANDOMIZER_DIR with its seed)
+windowed
+size 1280x720
+timeout 400
+env BLUEWAKE_TEST_SCRIPT_UI_PAD 1
+start fileselect 0
+wait 120
+press A 8
+wait 300
+press A 8
+wait 200
+winshot menu
+press A 8
+wait 400
+wait link
+log RANDO FILE PLAYABLE
+peek actor:0xA9+0x1F8/4 x_before
+peek actor:0xA9+0x200/4 z_before
+stick 0 100
+wait 60
+stick 0 0
+peek actor:0xA9+0x1F8/4 x_after
+peek actor:0xA9+0x200/4 z_after
+winshot playing

@@ -50,6 +50,11 @@ void dol_aurora_audio_set_master_volume(float volume) { bod::g_masterVolume = vo
 // ---- its host: what is not ported yet answers as a host without it would ----
 void bluewake_save_state_hotkey(bool) {}
 bool bluewake_game_options_set(const char* name, bool on) { return bod::optionSet(name, on); }
+bool bluewake_game_options_set_value(const char* name, float value) { return bod::optionValue(name, value); }
+// The player's last crouch stab (bod_gameopts.cpp): for the pose's swing block and PvP's per-swing hit cooldown.
+void bluewake_swing_state(uint8_t* kind, uint8_t* serial, uint8_t* flags, bool* active) {
+    bod::stabSwingState(kind, serial, flags, active);
+}
 void bluewake_intro_skip_set(bool on) { bod::introSkipSet(on); }
 }
 

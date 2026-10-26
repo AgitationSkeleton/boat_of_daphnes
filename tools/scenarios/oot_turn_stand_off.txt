@@ -1,0 +1,53 @@
+description Control for oot_turn_stand: Wind Waker turns on the spot (proc 0x17) or gradually
+options none
+env BLUEWAKE_OOT_LOG 1
+save 2-Pictobox
+start load
+wait link
+warp Omori 0 0
+wait link
+wait 60
+peek actor:0xA9+0x206/2 head0
+log push
+stick 127 0
+wait 1
+peek actor:0xA9+0x31D8/4 proc1
+peek actor:0xA9+0x206/2 head1
+peek actor:0xA9+0x20E/2 shape1
+peek actor:0xA9+0x34E8/2 stick1
+wait 1
+peek actor:0xA9+0x31D8/4 proc2
+peek actor:0xA9+0x206/2 head2
+peek actor:0xA9+0x20E/2 shape2
+peek actor:0xA9+0x34E8/2 stick2
+wait 1
+peek actor:0xA9+0x31D8/4 proc3
+peek actor:0xA9+0x206/2 head3
+peek actor:0xA9+0x20E/2 shape3
+peek actor:0xA9+0x34E8/2 stick3
+wait 1
+peek actor:0xA9+0x31D8/4 proc4
+peek actor:0xA9+0x206/2 head4
+peek actor:0xA9+0x20E/2 shape4
+peek actor:0xA9+0x34E8/2 stick4
+wait 1
+peek actor:0xA9+0x31D8/4 proc5
+peek actor:0xA9+0x206/2 head5
+peek actor:0xA9+0x20E/2 shape5
+peek actor:0xA9+0x34E8/2 stick5
+wait 1
+peek actor:0xA9+0x31D8/4 proc6
+peek actor:0xA9+0x206/2 head6
+peek actor:0xA9+0x20E/2 shape6
+peek actor:0xA9+0x34E8/2 stick6
+wait 1
+peek actor:0xA9+0x31D8/4 proc7
+peek actor:0xA9+0x206/2 head7
+peek actor:0xA9+0x20E/2 shape7
+peek actor:0xA9+0x34E8/2 stick7
+wait 1
+peek actor:0xA9+0x31D8/4 proc8
+peek actor:0xA9+0x206/2 head8
+peek actor:0xA9+0x20E/2 shape8
+peek actor:0xA9+0x34E8/2 stick8
+expect_not \[oot\]

@@ -7,15 +7,18 @@
 #endif
 #include <windows.h>
 #include <bcrypt.h>
+#include <wincrypt.h>
 #include <setupapi.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <winhttp.h>
 
 #include "bod_platform.h"
+#include "pin_registry.h"
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -35,7 +38,87 @@ std::wstring widen(const std::string& s) {
 }
 
 std::vector<wchar_t> g_environment;  // as the game was started, for Relaunch
+
+std::string narrow(const std::wstring& w) {
+    if (w.empty())
+        return {};
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
+    std::string s(static_cast<size_t>(n), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), s.data(), n, nullptr, nullptr);
+    return s;
+}
+
+// --- Certificate pins: a pinned host is trusted by the SHA-256 of its certificate's SubjectPublicKeyInfo alone ----------
+// Before the request is sent WinHTTP's own certificate checks are loosened for that host only (unknown CA, name, dates);
+// once the handshake is done (WinHttpSendRequest returned) the server's key is compared with the pin, and nothing is read
+// from the server unless it matches.
+
+// True when host is pinned (*pin gets the pin, and req accepts a certificate the system does not know).
+bool PreparePin(HINTERNET req, const std::string& host, std::string* pin) {
+    if (!pins::Find(host, pin))
+        return false;
+    DWORD flags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_DATE_INVALID | SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+                  SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+    WinHttpSetOption(req, WINHTTP_OPTION_SECURITY_FLAGS, &flags, sizeof flags);
+    return true;
+}
+
+// Whether the key of the server certificate of req (its handshake is done) hashes to pin.
+bool PinMatches(HINTERNET req, const std::string& pin) {
+    PCCERT_CONTEXT cert = nullptr;
+    DWORD size = sizeof cert;
+    if (!WinHttpQueryOption(req, WINHTTP_OPTION_SERVER_CERT_CONTEXT, &cert, &size) || cert == nullptr)
+        return false;
+    bool match = false;
+    BYTE* der = nullptr;
+    DWORD der_size = 0;
+    if (CryptEncodeObjectEx(X509_ASN_ENCODING, X509_PUBLIC_KEY_INFO, &cert->pCertInfo->SubjectPublicKeyInfo, CRYPT_ENCODE_ALLOC_FLAG,
+                            nullptr, &der, &der_size)) {
+        UCHAR digest[32];
+        if (BCryptHash(BCRYPT_SHA256_ALG_HANDLE, nullptr, 0, der, der_size, digest, sizeof digest) == 0)
+            match = pins::ConstantTimeEqual(pins::ToHex(digest, sizeof digest), pin);
+        LocalFree(der);
+    }
+    CertFreeCertificateContext(cert);
+    return match;
+}
+
+// For a WebSocket to a pinned host: a first, harmless request (HEAD /health) on the same connection handle, so the key is
+// checked before the upgrade request, which names the room, goes out. 0 = ok, 1 = no answer, 2 = not the pinned key.
+int PinPreflight(HINTERNET connection, const std::string& pin) {
+    HINTERNET req = WinHttpOpenRequest(connection, L"HEAD", L"/health", nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                       WINHTTP_FLAG_SECURE);
+    if (!req)
+        return 1;
+    DWORD flags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_DATE_INVALID | SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+                  SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+    WinHttpSetOption(req, WINHTTP_OPTION_SECURITY_FLAGS, &flags, sizeof flags);
+    int result = 1;
+    if (WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
+        if (!PinMatches(req, pin))
+            result = 2;
+        else if (WinHttpReceiveResponse(req, nullptr))
+            result = 0;
+    }
+    WinHttpCloseHandle(req);
+    return result;
+}
+
+// Writes all of body to req (after a WinHttpSendRequest that announced its length).
+bool WriteBody(HINTERNET req, const std::vector<uint8_t>& body) {
+    size_t at = 0;
+    while (at < body.size()) {
+        DWORD wrote = 0;
+        const DWORD n = static_cast<DWORD>(std::min<size_t>(body.size() - at, 1 << 20));
+        if (!WinHttpWriteData(req, body.data() + at, n, &wrote) || wrote == 0)
+            return false;
+        at += wrote;
+    }
+    return true;
+}
 }  // namespace
+
+void PinCertificate(const std::string& host, const std::string& spki_sha256_hex) { pins::Set(host, spki_sha256_hex); }
 
 fs::path ExeFolder() {
     wchar_t path[MAX_PATH * 2];
@@ -358,8 +441,11 @@ bool HttpDownload(const std::string& url_text, const std::string& path, const st
     }
     bool ok = false;
     const char* why = "the server did not answer";
+    std::string pin;
+    const bool pinned = req && u.nScheme == INTERNET_SCHEME_HTTPS && PreparePin(req, narrow(host), &pin);
+    bool pin_failed = false;
     if (req && WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
-        WinHttpReceiveResponse(req, nullptr)) {
+        !(pinned && (pin_failed = !PinMatches(req, pin))) && WinHttpReceiveResponse(req, nullptr)) {
         DWORD status = 0, size = sizeof status;
         WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status, &size,
                             WINHTTP_NO_HEADER_INDEX);
@@ -405,7 +491,7 @@ bool HttpDownload(const std::string& url_text, const std::string& path, const st
     if (connection)
         WinHttpCloseHandle(connection);
     WinHttpCloseHandle(session);
-    return ok ? true : failed(why);
+    return ok ? true : failed(pin_failed ? "the server's certificate does not match the pinned key" : why);
 }
 
 HttpResult HttpRequest(const std::string& base, const char* method, const std::string& path, const std::vector<uint8_t>* body,
@@ -434,10 +520,25 @@ HttpResult HttpRequest(const std::string& base, const char* method, const std::s
         req = WinHttpOpenRequest(connection, widen(method).c_str(), object.c_str(), nullptr, WINHTTP_NO_REFERER,
                                  WINHTTP_DEFAULT_ACCEPT_TYPES, u.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0);
     }
-    if (req && WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+    std::string pin;
+    const bool pinned = req && u.nScheme == INTERNET_SCHEME_HTTPS && PreparePin(req, narrow(host), &pin);
+    bool sent = false;
+    if (req && pinned) {
+        // Only the headers go out before the key is checked; the body follows once it matches.
+        const DWORD n = body ? static_cast<DWORD>(body->size()) : 0;
+        sent = WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, n, 0) != FALSE;
+        if (sent && !PinMatches(req, pin)) {
+            sent = false;
+            std::fprintf(stderr, "[net] %s: the server's certificate does not match the pinned key; connection refused\n", narrow(host).c_str());
+        } else if (sent && body) {
+            sent = WriteBody(req, *body);
+        }
+    } else if (req) {
+        sent = WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
                                   body ? const_cast<uint8_t*>(body->data()) : WINHTTP_NO_REQUEST_DATA,
-                                  body ? static_cast<DWORD>(body->size()) : 0, body ? static_cast<DWORD>(body->size()) : 0, 0) &&
-        WinHttpReceiveResponse(req, nullptr)) {
+                                  body ? static_cast<DWORD>(body->size()) : 0, body ? static_cast<DWORD>(body->size()) : 0, 0) != FALSE;
+    }
+    if (sent && WinHttpReceiveResponse(req, nullptr)) {
         DWORD status = 0, size = sizeof status;
         WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status, &size,
                             WINHTTP_NO_HEADER_INDEX);
@@ -503,19 +604,43 @@ bool WebSocket::Connect(const std::string& host, unsigned short port, bool secur
     WinHttpSetTimeouts(mImpl->session, 10000, 10000, 10000, 10000);
     mImpl->connect = WinHttpConnect(mImpl->session, widen(host).c_str(), port, 0);
     const std::wstring wpath = widen(path);
+    if (std::string pin; secure && mImpl->connect && pins::Find(host, &pin)) {
+        const int checked = PinPreflight(mImpl->connect, pin);
+        if (checked == 2) {
+            fail("the server's certificate does not match the pinned key");
+            *code = ERROR_WINHTTP_SECURE_INVALID_CERT;
+            return false;
+        }
+        // (1: no answer; the real request below fails the same way and reports it.)
+    }
     HINTERNET request = mImpl->connect ? WinHttpOpenRequest(mImpl->connect, L"GET", wpath.c_str(), nullptr, WINHTTP_NO_REFERER,
                                                             WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0)
                                        : nullptr;
     HINTERNET socket = nullptr;
     bool ok = false;
+    if (std::string loosen; request != nullptr && secure)
+        PreparePin(request, host, &loosen);
     if (request == nullptr) {
         fail("cannot reach the server");
-    } else if (!WinHttpSetOption(request, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0) ||
-               !WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
-               !WinHttpReceiveResponse(request, nullptr)) {
+    } else if (!WinHttpSetOption(request, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0)) {
+        fail("the server did not answer");
+    } else if (std::string pin; !WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
+        fail("the server did not answer");
+    } else if (secure && pins::Find(host, &pin) && !PinMatches(request, pin)) {
+        // The handshake is done but the server's key is not the pinned one: nothing is read from it.
+        fail("the server's certificate does not match the pinned key");
+        *code = ERROR_WINHTTP_SECURE_INVALID_CERT;
+    } else if (!WinHttpReceiveResponse(request, nullptr)) {
         fail("the server did not answer");
     } else if ((socket = WinHttpWebSocketCompleteUpgrade(request, 0)) == nullptr) {
+        // Not upgraded: the server answered with an HTTP status (429 or 5xx when it is over its limits), which the caller
+        // uses to decide on the backup server.
+        DWORD status = 0, size = sizeof status;
+        const bool have = WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                                              WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX) != FALSE;
         fail("the server refused the connection");
+        if (have)
+            *code = status;
     } else {
         ok = true;
     }
@@ -567,6 +692,28 @@ void WebSocket::Close() {
     HINTERNET socket = mImpl->socket.exchange(nullptr);
     if (socket != nullptr)
         WinHttpCloseHandle(socket);
+}
+
+// The present USB devices' instance ids ("USB\VID_057E&PID_0337\..."), any class.
+bool UsbDevicePresent(unsigned short vid, unsigned short pid) {
+    char want[32];
+    std::snprintf(want, sizeof want, "VID_%04X&PID_%04X", vid, pid);
+    HDEVINFO set = SetupDiGetClassDevsA(nullptr, "USB", nullptr, DIGCF_PRESENT | DIGCF_ALLCLASSES);
+    if (set == INVALID_HANDLE_VALUE)
+        return false;
+    bool found = false;
+    SP_DEVINFO_DATA dev{};
+    dev.cbSize = sizeof dev;
+    for (DWORD i = 0; !found && SetupDiEnumDeviceInfo(set, i, &dev); ++i) {
+        char id[512];
+        if (SetupDiGetDeviceInstanceIdA(set, &dev, id, sizeof id, nullptr)) {
+            for (char* c = id; *c; ++c)
+                *c = static_cast<char>(std::toupper(static_cast<unsigned char>(*c)));
+            found = std::strstr(id, want) != nullptr;
+        }
+    }
+    SetupDiDestroyDeviceInfoList(set);
+    return found;
 }
 
 }  // namespace bodplat

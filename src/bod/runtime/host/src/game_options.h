@@ -4,6 +4,7 @@
 #include "core/cpu.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 
 // Game options (mods/betterww/options.txt, docs/MODS.md): Better Wind Waker's
 // settings as switches. The option sites in the composite read the switches;
@@ -31,6 +32,11 @@ bool bluewake_game_options_invert_camera_x(void);
 bool bluewake_game_options_hud_edges(void);
 // Turns an option on or off now (the settings menu). False if there is no such option.
 bool bluewake_game_options_set(const char* name, bool on);
+// A knob of the Ocarina of Time controls (Enhancements > Ocarina of Time Controls), live. False if there is none.
+bool bluewake_game_options_set_value(const char* name, float value);
+// The last crouch stab (Enhancements > Gameplay): kind 0 none / 1 stab / 2 power stab (non-zero for about 0.7 s after
+// it starts), the swing's serial (counts up per stab, wraps), flags (bit 0: the Master Sword), whether it still plays.
+void bluewake_swing_state(uint8_t* kind, uint8_t* serial, uint8_t* flags, bool* active);
 // Whether the game module offers an option of that name.
 bool bluewake_game_options_has(const char* name);
 // Whether an option is on now (false for no such option).

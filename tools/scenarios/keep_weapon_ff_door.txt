@@ -1,0 +1,32 @@
+description Keep Held Weapons: a stick carried through a Forsaken Fortress door (majroom back out to MajyuE, the door whose event drops it: user 2026-10-25) stays in hand and comes along
+timeout 900
+save 2-Pictobox
+options keep_weapons
+env BLUEWAKE_TEST_BUNNY 1
+size 640x480
+start load
+wait link
+warp majroom 0 3
+wait 120
+console spawn Boko 0 60
+wait 60
+press A 6
+wait 120
+peek actor:0xA9+0x3560/2 equip_before
+expect_peek equip_before == 0x101
+shot before
+stick 0 -60
+wait 25
+stick 0 0
+wait 20
+shot at_door
+press A 6
+wait 40
+peek actor:0xA9+0x3560/2 equip_in_door
+shot in_door
+wait 600
+peek actor:0xA9+0x3560/2 equip_after
+console actors Boko
+shot after
+expect_peek equip_in_door == 0x101
+expect_peek equip_after == 0x101
