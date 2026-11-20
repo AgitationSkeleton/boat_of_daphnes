@@ -1,0 +1,13 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "The Legend of Zelda: The Wind Waker",
+  "wikidata": "Q852563",
+  "system": "GameCube",
+  "type": "recomp",
+  "original": { "region": "USA", "serial": "DOL-GZLE-USA" },
+  "project": "Boat of Daphnes",
+  "status": "released",
+  "targets": ["Windows"],
+  "approach": "Static recompilation of the player's own disc, built on first launch; WebGPU renderer",
+  "maintainers": [{ "name": "AgitationSkeleton", "link": "https://github.com/AgitationSkeleton" }]
+}
